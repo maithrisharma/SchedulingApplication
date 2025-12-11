@@ -27,8 +27,8 @@ export default function SchedulingPage() {
   const { scenario, setScenario } = useScenario();
 
   const [scenarios, setScenarios] = useState([]);
-  const [running, setRunning] = useState(false);            // UI running flag
-  const [isRunningBackend, setIsRunningBackend] = useState(false); // backend real status
+  const [running, setRunning] = useState(false);
+  const [isRunningBackend, setIsRunningBackend] = useState(false);
   const [progress, setProgress] = useState(0);
 
   const [error, setError] = useState("");
@@ -37,6 +37,9 @@ export default function SchedulingPage() {
 
   const [cancelled, setCancelled] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+
+  const BASE =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
   /* ========================================================
         LOAD SCENARIOS
@@ -48,16 +51,14 @@ export default function SchedulingPage() {
   }, []);
 
   /* ========================================================
-        AUTO RESTORE STATUS WHEN PAGE LOADS OR SCENARIO CHANGES
+        AUTO RESTORE BACKEND STATUS
   ======================================================== */
   useEffect(() => {
     if (!scenario) return;
 
     async function checkStatus() {
       try {
-        const res = await apiGet(`/schedule/progress/${scenario}`);
-
-        console.log("[UI] Status check:", res);
+        const res = await apiGet(`/schedule/status/${scenario}`);
 
         if (res.running) {
           setIsRunningBackend(true);
@@ -67,6 +68,10 @@ export default function SchedulingPage() {
         } else {
           setIsRunningBackend(false);
           setRunning(false);
+
+          if (res.progress === 100) {
+            setInfo("Scheduler erfolgreich abgeschlossen!");
+          }
         }
       } catch (err) {
         console.warn("[UI] Failed status check:", err);
@@ -77,22 +82,22 @@ export default function SchedulingPage() {
   }, [scenario]);
 
   /* ========================================================
-        PROGRESS POLLING
+        POLLING LOOP
   ======================================================== */
   useEffect(() => {
-    if (!scenario || cancelled || !isRunningBackend) {
-      return;
-    }
+    if (!scenario || cancelled || !isRunningBackend) return;
 
     const interval = setInterval(async () => {
       try {
-        const res = await apiGet(`/schedule/progress/${scenario}`);
-
-        if (cancelled) return;
+        const res = await apiGet(`/schedule/status/${scenario}`);
 
         setProgress(res.progress ?? 0);
         setIsRunningBackend(res.running);
         setRunning(res.running);
+
+        if (!res.running && res.progress === 100) {
+          setInfo("Scheduler erfolgreich abgeschlossen!");
+        }
 
       } catch (err) {
         console.warn("[UI] Poll error:", err);
@@ -104,7 +109,7 @@ export default function SchedulingPage() {
 
 
   /* ========================================================
-        RUN SCHEDULER
+        RUN SCHEDULER (BACKGROUND MODE)
   ======================================================== */
   async function handleSchedule() {
     setError("");
@@ -113,72 +118,44 @@ export default function SchedulingPage() {
     setProgress(0);
     setCancelled(false);
 
-    if (!scenario) {
-      return setError("Bitte wählen Sie ein Szenario aus.");
-    }
+    if (!scenario) return setError("Bitte wählen Sie ein Szenario aus.");
 
     setRunning(true);
     setIsRunningBackend(true);
 
-    const url =
-      `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"}` +
-      `/schedule/${scenario}`;
-
     try {
-      const res = await fetch(url, { method: "POST" });
+      const res = await fetch(`${BASE}/schedule/start/${scenario}`, {
+        method: "POST",
+      });
+
       const data = await res.json().catch(() => ({}));
 
-      // 409 — scheduler already running
-      if (res.status === 409) {
-        setError(data.error || "Scheduler läuft bereits.");
-
-        // --- Restore real state from backend ---
-        const status = await apiGet(`/schedule/progress/${scenario}`);
-        setIsRunningBackend(true);
-        setRunning(true);
-        setProgress(status.progress ?? 0);
-        setCancelled(false);
-
-        return;
-      }
-
       if (!res.ok) {
-        throw new Error(data.error || "Fehler beim Scheduler.");
+        throw new Error(data.error || "Fehler beim Scheduler-Start.");
       }
 
-      if (data.cancelled) {
-        setCancelled(true);
-        setInfo("Scheduler wurde abgebrochen.");
-        return;
-      }
-
-      // success
-      setInfo("Scheduler erfolgreich abgeschlossen!");
-      setResults(data.outputs);
-      setProgress(100);
+      setInfo("Scheduler gestartet. Bitte warten…");
 
     } catch (err) {
-      console.error("[UI] Scheduler error:", err);
+      console.error("[UI] Scheduler start error:", err);
       setError(err.message);
-    } finally {
-      // Mark UI done, backend may still be running in some cases
       setRunning(false);
       setIsRunningBackend(false);
     }
   }
 
+
   /* ========================================================
-        SEND CANCEL REQUEST
+        CANCEL BACKGROUND SCHEDULER
   ======================================================== */
   async function confirmCancelRun() {
     setConfirmCancel(false);
 
-    const url =
-      `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"}` +
-      `/schedule/cancel/${scenario}`;
-
     try {
-      const res = await fetch(url, { method: "POST" });
+      const res = await fetch(`${BASE}/schedule/cancel/${scenario}`, {
+        method: "POST",
+      });
+
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || !data.ok) {
@@ -190,13 +167,13 @@ export default function SchedulingPage() {
       setRunning(false);
       setIsRunningBackend(false);
       setProgress(0);
-      setResults(null);
 
     } catch (err) {
       console.error("[UI] Cancel error:", err);
       setError(err.message);
     }
   }
+
 
   /* ========================================================
             RENDER UI
@@ -228,7 +205,7 @@ export default function SchedulingPage() {
               Szenario zur Planung auswählen
             </Typography>
 
-            {/* SELECT + BUTTONS */}
+            {/* SCENARIO SELECT + BUTTONS */}
             <Box
               sx={{
                 display: "flex",
@@ -292,11 +269,7 @@ export default function SchedulingPage() {
             {/* PROGRESS BAR */}
             {!cancelled && isRunningBackend && (
               <Box sx={{ mt: 3 }}>
-                <LinearProgress
-                  variant="determinate"
-                  value={progress}
-                  sx={{ height: 10, borderRadius: 4 }}
-                />
+                <LinearProgress variant="determinate" value={progress} sx={{ height: 10, borderRadius: 4 }} />
                 <Typography sx={{ mt: 1, fontWeight: 600 }}>
                   Fortschritt: {progress}%
                 </Typography>
@@ -321,36 +294,7 @@ export default function SchedulingPage() {
           </CardContent>
         </Card>
 
-        {/* RESULTS */}
-        {results && !cancelled && (
-          <Card sx={{ borderRadius: 4, boxShadow: "0 12px 28px rgba(0,0,0,0.06)", mb: 4 }}>
-            <CardContent sx={{ p: { xs: 3, md: 5 } }}>
-              <Typography variant="h6" sx={{ fontWeight: 700, mb: 3 }}>
-                Erzeugte Ausgabedateien
-              </Typography>
-
-              <Grid container spacing={2}>
-                {Object.entries(results).map(([file, status]) => (
-                  <Grid item xs={12} sm={6} key={file}>
-                    <Box
-                      sx={{
-                        p: 3,
-                        bgcolor: "#f0fdf4",
-                        borderRadius: 3,
-                        border: "1px solid #86efac",
-                      }}
-                    >
-                      <strong>{file}</strong> →{" "}
-                      <span style={{ color: "#166534" }}>{status}</span>
-                    </Box>
-                  </Grid>
-                ))}
-              </Grid>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* CONFIRM CANCEL */}
+        {/* CANCEL CONFIRMATION DIALOG */}
         <Dialog open={confirmCancel} onClose={() => setConfirmCancel(false)}>
           <DialogTitle>Planung abbrechen?</DialogTitle>
           <DialogContent>

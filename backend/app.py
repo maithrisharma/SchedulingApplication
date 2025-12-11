@@ -7,7 +7,7 @@ from flask_cors import CORS
 from api.scenarios import scenarios_bp
 from api.uploads import uploads_bp
 from api.clean import clean_bp
-from api.schedule import schedule_bp
+from api.schedule import schedule_bp   # <-- this will use the NEW threading version
 from api.visualize import visualize_bp
 from api.results import results_bp
 
@@ -15,10 +15,11 @@ from api.results import results_bp
 def create_app():
     app = Flask(__name__)
 
-    # Global CORS
+    # --------------------------
+    # GLOBAL CORS (strong mode)
+    # --------------------------
     CORS(app, resources={r"/*": {"origins": "*"}})
 
-    # FINAL FIX: ensure ALL responses include CORS headers
     @app.after_request
     def add_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = "*"
@@ -26,6 +27,9 @@ def create_app():
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         return response
 
+    # --------------------------
+    # HEALTH CHECK
+    # --------------------------
     @app.get("/api/health")
     def health():
         return jsonify({"status": "ok", "message": "scheduler backend is alive"})
@@ -39,10 +43,13 @@ def create_app():
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
 
+    # --------------------------
+    # BLUEPRINT REGISTRATION
+    # --------------------------
     app.register_blueprint(scenarios_bp)
     app.register_blueprint(uploads_bp)
     app.register_blueprint(clean_bp)
-    app.register_blueprint(schedule_bp)
+    app.register_blueprint(schedule_bp)     # <-- critical: includes threading version
     app.register_blueprint(visualize_bp)
     app.register_blueprint(results_bp)
 
