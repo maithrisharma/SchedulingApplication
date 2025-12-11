@@ -1,0 +1,37 @@
+/* GLOBAL RESET */
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+
+  overflow-x: hidden !important;
+  overflow-y: auto !important;   /* RESTORE SCROLL */
+  background: #f7f9fc;
+  font-family: Inter, Roboto, Arial, sans-serif;
+}
+
+/* FIX NAVBAR SCROLL BUG */
+.MuiAppBar-root {
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
+}
+
+/* Prevent tab bar overflow */
+.MuiTabs-flexContainer {
+  flex-wrap: wrap !important;
+}
+
+.MuiTabs-root {
+  overflow-x: hidden !important;
+}
+
+/* App container */
+#root {
+  background: #f7f9fc;
+  text-align: left;
+}

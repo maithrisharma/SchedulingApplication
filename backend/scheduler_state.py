@@ -1,0 +1,19 @@
+# backend/scheduler_state.py
+from threading import Lock
+
+# Flags for each scenario
+active_jobs = {}      # scenario -> True/False
+progress = {}         # scenario -> integer 0–100
+cancel_flag = {}      # scenario -> True/False
+
+# Locks
+_locks = {}           # scenario -> Lock
+_global_lock = Lock()
+
+
+def get_lock(scenario: str) -> Lock:
+    """Return (or create) a reusable per-scenario lock."""
+    with _global_lock:
+        if scenario not in _locks:
+            _locks[scenario] = Lock()
+        return _locks[scenario]
