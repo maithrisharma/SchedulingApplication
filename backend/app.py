@@ -3,6 +3,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from flask import Flask, jsonify
 from flask_cors import CORS
+
 from api.scenarios import scenarios_bp
 from api.uploads import uploads_bp
 from api.clean import clean_bp
@@ -14,8 +15,16 @@ from api.results import results_bp
 def create_app():
     app = Flask(__name__)
 
-    # GLOBAL CORS FIX — allows frontend on Railway to call backend
+    # Global CORS
     CORS(app, resources={r"/*": {"origins": "*"}})
+
+    # FINAL FIX: ensure ALL responses include CORS headers
+    @app.after_request
+    def add_cors_headers(response):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
 
     @app.get("/api/health")
     def health():
@@ -30,7 +39,6 @@ def create_app():
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
 
-    # REGISTER BLUEPRINTS
     app.register_blueprint(scenarios_bp)
     app.register_blueprint(uploads_bp)
     app.register_blueprint(clean_bp)
@@ -41,7 +49,6 @@ def create_app():
     return app
 
 
-# for running locally
 if __name__ == "__main__":
     app = create_app()
     app.run(host="0.0.0.0", port=5000)
