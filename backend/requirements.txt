@@ -6,6 +6,6 @@ python-dateutil>=2.8
 Flask>=3.0
 Flask-Cors>=4.0
 
-python-dotenv>=1.0   # optional but recommended
+python-dotenv>=1.0
 xlsxwriter
 gunicorn
