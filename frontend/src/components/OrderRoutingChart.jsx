@@ -14,7 +14,7 @@ const COLORS = {
 
 const toMs = (d) => new Date(d).getTime();
 const formatDate = (t) =>
-  new Date(t).toLocaleDateString("en-GB", {
+  new Date(t).toLocaleDateString("de-DE", {
     day: "2-digit",
     month: "short",
   });
@@ -76,11 +76,17 @@ export default function OrderRoutingChart({ operations }) {
     >
       {/* ---------------- ZOOM BUTTONS ---------------- */}
       <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-        <IconButton size="small" onClick={() => setZoom((z) => Math.min(z * 1.2, 10))}>
+        <IconButton
+          size="small"
+          onClick={() => setZoom((z) => Math.min(z * 1.2, 10))}
+        >
           <ZoomInIcon fontSize="small" />
         </IconButton>
 
-        <IconButton size="small" onClick={() => setZoom((z) => Math.max(z / 1.2, 0.2))}>
+        <IconButton
+          size="small"
+          onClick={() => setZoom((z) => Math.max(z / 1.2, 0.2))}
+        >
           <ZoomOutIcon fontSize="small" />
         </IconButton>
 
@@ -157,7 +163,7 @@ export default function OrderRoutingChart({ operations }) {
                   const topPos = y - 30;
                   setTooltip({
                     left: x1 + width / 2,
-                    top: topPos < 50 ? y + 30 : topPos, // 👍 auto reposition!
+                    top: topPos < 50 ? y + 30 : topPos,
                     op,
                   });
                 }}
@@ -175,7 +181,8 @@ export default function OrderRoutingChart({ operations }) {
               {idx < sorted.length - 1 &&
                 (() => {
                   const next = sorted[idx + 1];
-                  const nx = paddingLeft + (toMs(next.Start) - minStart) * pxPerMs;
+                  const nx =
+                    paddingLeft + (toMs(next.Start) - minStart) * pxPerMs;
 
                   const y1 = y + 11;
                   const y2 = yMap[next.WorkPlaceNo] + 11;
@@ -216,13 +223,13 @@ export default function OrderRoutingChart({ operations }) {
             maxWidth: 260,
           }}
         >
-          <strong>{tooltip.op.OrderNo}</strong>
-          <div>Machine: {tooltip.op.WorkPlaceNo}</div>
-          <div>Start: {new Date(tooltip.op.Start).toLocaleString()}</div>
-          <div>End: {new Date(tooltip.op.End).toLocaleString()}</div>
+          <strong>Auftrag {tooltip.op.OrderNo}</strong>
+          <div>Arbeitsplatz: {tooltip.op.WorkPlaceNo}</div>
+          <div>Start: {new Date(tooltip.op.Start).toLocaleString("de-DE")}</div>
+          <div>Ende: {new Date(tooltip.op.End).toLocaleString("de-DE")}</div>
           {tooltip.op.ReasonSelected && (
             <div style={{ marginTop: 4 }}>
-              <em>Reason:</em> {tooltip.op.ReasonSelected}
+              <em>Grund:</em> {tooltip.op.ReasonSelected}
             </div>
           )}
         </Box>

@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// IdleTimePage.jsx — With Filters Button (Matches Gantt Layout)
+// IdleTimePage.jsx — German UI Version (Only Text Translated)
 // ------------------------------------------------------------
 import { useEffect, useState, useMemo } from "react";
 import {
@@ -61,7 +61,7 @@ export default function IdleTimePage({ onOpenFilters }) {
   const [err, setErr] = useState("");
 
   /* -------------------------------------------
-     Load Scenario List
+     Szenarien laden
   ------------------------------------------- */
   useEffect(() => {
     apiGet("/scenarios/list").then((res) => {
@@ -70,7 +70,7 @@ export default function IdleTimePage({ onOpenFilters }) {
   }, []);
 
   /* -------------------------------------------
-     Load Idle + Utilization Data
+     Idle + Utilisation laden
   ------------------------------------------- */
   useEffect(() => {
     if (!scenario) return;
@@ -87,20 +87,20 @@ export default function IdleTimePage({ onOpenFilters }) {
         setLoading(false);
       })
       .catch(() => {
-        setErr("Failed to load idle time dataset.");
+        setErr("Leerlaufdaten konnten nicht geladen werden.");
         setLoading(false);
       });
   }, [scenario]);
 
   /* -------------------------------------------
-     Apply Filters
+     Filter anwenden
   ------------------------------------------- */
   const filtered = useMemo(() => {
     if (!idleData || !idleData.idle_hours) return null;
 
     let machines = Object.keys(idleData.idle_hours);
 
-    // Machine filtering
+    // Maschinenfilter
     if (filters.machines.length === 0) {
       machines = idleData.top10_machines;
     } else if (filters.machines[0] !== ALL_SENTINEL) {
@@ -111,7 +111,7 @@ export default function IdleTimePage({ onOpenFilters }) {
       (a, b) => idleData.idle_hours[b] - idleData.idle_hours[a]
     );
 
-    // Date range filter
+    // Datumsfilter
     const filterDates = (rows) => {
       if (!filters.dateStart && !filters.dateEnd) return rows;
 
@@ -146,10 +146,11 @@ export default function IdleTimePage({ onOpenFilters }) {
     );
 
   if (err) return <Alert severity="error">{err}</Alert>;
-  if (!filtered) return <Alert severity="warning">No idle data found.</Alert>;
+  if (!filtered)
+    return <Alert severity="warning">Keine Leerlaufdaten gefunden.</Alert>;
 
   /* -------------------------------------------
-     Align trend data for LineChart
+     Trenddaten für Linienchart ausrichten
   ------------------------------------------- */
   const alignedTrendData = (() => {
     const allDates = Array.from(
@@ -183,9 +184,8 @@ export default function IdleTimePage({ onOpenFilters }) {
   return (
     <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", px: 3, pt: 2 }}>
       <Box sx={{ maxWidth: 1600, mx: "auto" }}>
-
         {/* =======================================================
-            TITLE + FILTERS BUTTON (MATCHES GANTT & UTILIZATION)
+            TITEL + FILTER BUTTON
         ======================================================== */}
         <Box sx={{ position: "relative", mb: 2, mt: 1 }}>
           <Typography
@@ -196,10 +196,9 @@ export default function IdleTimePage({ onOpenFilters }) {
               color: "#0f172a",
             }}
           >
-            Idle Time Analysis
+            Leerlaufzeit-Analyse
           </Typography>
 
-          {/* FILTERS BUTTON TOP RIGHT */}
           {onOpenFilters && (
             <Button
               variant="text"
@@ -214,11 +213,10 @@ export default function IdleTimePage({ onOpenFilters }) {
                 color: "#0f3b63",
               }}
             >
-              Filters
+              Filter
             </Button>
           )}
 
-          {/* Subtitle */}
           <Typography
             variant="subtitle1"
             sx={{
@@ -227,34 +225,17 @@ export default function IdleTimePage({ onOpenFilters }) {
               mt: 1,
             }}
           >
-            Scenario:{" "}
+            Szenario:&nbsp;
             <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
           </Typography>
         </Box>
 
         {/* =======================================================
-            SCENARIO SELECTOR (aligned left)
-        ========================================================
-        <Stack direction="row" justifyContent="flex-start" sx={{ mb: 3 }}>
-          <Select
-            value={scenario}
-            onChange={(e) => setScenario(e.target.value)}
-            sx={{ minWidth: 260, bgcolor: "white" }}
-          >
-            {scenarioList.map((s) => (
-              <MenuItem key={s} value={s}>
-                {s}
-              </MenuItem>
-            ))}
-          </Select>
-        </Stack>*/}
-
-        {/* =======================================================
-            CHART 1 — TOTAL IDLE HOURS
+            CHART 1 — Gesamtleerlaufzeit
         ======================================================== */}
         <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-            Total Idle Hours (Top Machines)
+            Gesamt-Leerlaufstunden (Top Maschinen)
           </Typography>
 
           <ResponsiveContainer width="100%" height={400}>
@@ -268,17 +249,17 @@ export default function IdleTimePage({ onOpenFilters }) {
               <XAxis dataKey="machine" angle={-35} textAnchor="end" height={70} />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="hours" fill="#3b82f6" />
+              <Bar dataKey="hours" fill="#3b82f6" name="Leerlaufstunden" />
             </BarChart>
           </ResponsiveContainer>
         </Card>
 
         {/* =======================================================
-            CHART 2 — IDLE TREND
+            CHART 2 — Leerlauftrend
         ======================================================== */}
         <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-            Idle Trend (Daily)
+            Leerlauftrend (täglich)
           </Typography>
 
           <ResponsiveContainer width="100%" height={350}>
@@ -304,11 +285,11 @@ export default function IdleTimePage({ onOpenFilters }) {
         </Card>
 
         {/* =======================================================
-            CHART 3 — BUBBLE CHART
+            CHART 3 — Bubble Chart
         ======================================================== */}
         <Card sx={{ p: 4, borderRadius: 4 }}>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-            Idle vs Utilization vs Job Count (Bubble Chart)
+            Leerlauf vs. Auslastung vs. Auftragsmenge (Bubble Chart)
           </Typography>
 
           <ResponsiveContainer width="100%" height={420}>
@@ -317,22 +298,19 @@ export default function IdleTimePage({ onOpenFilters }) {
               <XAxis
                 type="number"
                 dataKey="util"
-                name="Utilization %"
-                domain={[
-                  Math.min(...utilList) - 5,
-                  Math.max(...utilList) + 5,
-                ]}
+                name="Auslastung %"
               />
               <YAxis
                 type="number"
                 dataKey="idle"
-                name="Idle Hours"
-                domain={[
-                  Math.min(...idleList) * 0.9,
-                  Math.max(...idleList) * 1.1,
-                ]}
+                name="Leerlaufstunden"
               />
-              <ZAxis type="number" dataKey="jobs" name="Job Count" range={[80, 700]} />
+              <ZAxis
+                type="number"
+                dataKey="jobs"
+                name="Auftragsanzahl"
+                range={[80, 700]}
+              />
               <Tooltip />
               <Scatter data={bubbleData} fill="#ef4444" />
             </ScatterChart>

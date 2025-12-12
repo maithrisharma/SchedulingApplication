@@ -9,6 +9,8 @@ import {
   Button,
   Stack,
   Alert,
+  FormControlLabel,
+  Switch,
   CircularProgress,
 } from "@mui/material";
 
@@ -21,7 +23,7 @@ import { apiGet } from "../api";
 const ALL_SENTINEL = "__ALL__";
 
 export default function GanttPage({ onOpenFilters }) {
-  const { scenario, setScenario } = useScenario();
+  const { scenario, setScenario, setSelectedOrder } = useScenario();
   const { filters, setMachineList } = useGlobalFilters();
 
   const [scenarioList, setScenarioList] = useState([]);
@@ -30,6 +32,7 @@ export default function GanttPage({ onOpenFilters }) {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [showAllLabels, setShowAllLabels] = useState(false);
 
   /* VIEWPORT */
   const [viewportHeight, setViewportHeight] = useState(
@@ -63,9 +66,9 @@ export default function GanttPage({ onOpenFilters }) {
         setLoading(false);
       })
       .catch(() => {
-        setErr("Failed to load data");
+        setErr("Daten konnten nicht geladen werden.");
         setLoading(false);
-      });
+      }).finally(() => setLoading(false));
   }, [scenario, setMachineList]);
 
   /* FILTER LOGIC */
@@ -155,43 +158,66 @@ export default function GanttPage({ onOpenFilters }) {
               textAlign: "center",
             }}
           >
-            Gantt Visualization
+            Plantafel
           </Typography>
 
-          {/* FILTER button */}
-          {onOpenFilters && (
-            <Button
-              variant="text"
-              startIcon={<FilterList />}
-              onClick={onOpenFilters}
+          {/* FILTER + LABELS TOGGLE (Option A: top right) */}
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{
+              position: "absolute",
+              right: 0,
+              top: "50%",
+              transform: "translateY(-30%)",
+              alignItems: "center",
+            }}
+          >
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={showAllLabels}
+                  onChange={(e) => setShowAllLabels(e.target.checked)}
+                />
+              }
+              label="Alle Beschriftungen"
               sx={{
-                position: "absolute",
-                right: 0,
-                top: "50%",
-                transform: "translateY(-30%)",
-                fontSize: 16,
-                color: "#0f3b63",
+                mr: 0,
+                "& .MuiFormControlLabel-label": {
+                  fontSize: 13,
+                },
               }}
-            >
-              Filters
-            </Button>
-          )}
+            />
+
+            {onOpenFilters && (
+              <Button
+                variant="text"
+                startIcon={<FilterList />}
+                onClick={onOpenFilters}
+                sx={{
+                  fontSize: 16,
+                  color: "#0f3b63",
+                }}
+              >
+                Filter
+              </Button>
+            )}
+          </Stack>
 
           <Typography
             variant="subtitle1"
             sx={{ textAlign: "center", color: "#64748b", mt: 1 }}
           >
-            Schedule for scenario:&nbsp;
+            Plan für Szenario:&nbsp;
             <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
           </Typography>
         </Box>
 
         {/* CARD */}
         <Card sx={{ borderRadius: 4, p: 3 }}>
-
-
-          {/* CHART */}
           {err && <Alert severity="error">{err}</Alert>}
+
           {loading && (
             <Box sx={{ textAlign: "center", py: 8 }}>
               <CircularProgress size={70} />
@@ -203,13 +229,19 @@ export default function GanttPage({ onOpenFilters }) {
               key={scenario + JSON.stringify(filters)}
               data={filteredPlan}
               height={dynamicHeight}
+              showAllLabels={showAllLabels}
               onRefresh={() => setScenario(scenario)}
               onDownloadSvg={handleDownloadSvg}
+              onBarClick={(job) =>
+                job?.OrderNo && setSelectedOrder(String(job.OrderNo))
+              }
             />
           )}
 
           {!loading && scenario && filteredPlan.length === 0 && (
-            <Alert severity="warning">No jobs match filters.</Alert>
+            <Alert severity="warning">
+              Keine Aufträge entsprechen den Filtern.
+            </Alert>
           )}
         </Card>
       </Box>

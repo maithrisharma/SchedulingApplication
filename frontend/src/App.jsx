@@ -12,13 +12,12 @@ import { GlobalFiltersProvider } from "./context/GlobalFiltersContext";
 /* ---------------- Main workflow pages ---------------- */
 import ScenarioListPage from "./pages/ScenarioListPage";
 import FileUploadPage from "./pages/FileUploadPage";
-
 import SchedulingPage from "./pages/SchedulingPage";
 
 /* ---------------- KPI pages ---------------- */
 import KpiPage from "./pages/KpiPage";
 import KpiLateOpsPage from "./pages/KpiLateOpsPage";
-import KpiLogAssistantPage from "./pages/KpiLogAssistantPage"
+import KpiLogAssistantPage from "./pages/KpiLogAssistantPage";
 
 /* ---------------- Analysis Tools ---------------- */
 import AnalysisToolsPage from "./pages/AnalysisToolsPage";
@@ -35,22 +34,19 @@ import DeliveryReportPage from "./pages/DeliveryReportPage";
 import { AppBar, Toolbar, Button, Tabs, Tab } from "@mui/material";
 
 /* -------------------------------------------------------------
-   REUSABLE TOP NAV ITEM (UPGRADED LOOK + FIXED ACTIVE LOGIC)
+      REUSABLE TOP NAV ITEM (Reduced height + German)
 ------------------------------------------------------------- */
 function TopNavItem({ label, to }) {
   const { pathname } = useLocation();
 
-  // Map a route target to its "section" base for active highlighting
   let matchBase = to;
-
   if (to.startsWith("/kpis")) matchBase = "/kpis";
   else if (to.startsWith("/analysis")) matchBase = "/analysis";
   else if (to.startsWith("/reports")) matchBase = "/reports";
-  else if (to === "/") matchBase = "/"; // root is its own base
 
   const active =
     matchBase === "/"
-      ? pathname === "/" // avoid "/" matching everything
+      ? pathname === "/"
       : pathname === matchBase || pathname.startsWith(matchBase + "/");
 
   return (
@@ -60,13 +56,14 @@ function TopNavItem({ label, to }) {
       disableRipple
       sx={{
         textTransform: "none",
-        fontSize: "1rem",
+        fontSize: "0.9rem",
         fontWeight: active ? 700 : 500,
         color: active ? "#1d4ed8" : "#334155",
-        borderBottom: active ? "3px solid #1d4ed8" : "3px solid transparent",
+        borderBottom: active ? "2px solid #1d4ed8" : "2px solid transparent",
         borderRadius: 0,
-        px: 2,
-        py: 1,
+        px: 1.2,
+        py: 0.3,       // REDUCED
+        minHeight: 36, // REDUCED
         "&:hover": {
           backgroundColor: "transparent",
           color: "#1d4ed8",
@@ -79,7 +76,7 @@ function TopNavItem({ label, to }) {
 }
 
 /* -------------------------------------------------------------
-   GENERIC SUB NAV COMPONENT (UPGRADED STYLE)
+   SUB NAV COMPONENT (Reduced height)
 ------------------------------------------------------------- */
 function SubNav({ tabs }) {
   const path = useLocation().pathname;
@@ -95,30 +92,27 @@ function SubNav({ tabs }) {
       color="inherit"
       elevation={0}
       sx={{
-        maxWidth: "100%",
-        overflowX: "hidden",
         borderBottom: "1px solid #e2e8f0",
         bgcolor: "#ffffff",
+        minHeight: 40, // REDUCED
       }}
     >
       <Tabs
         value={activeIndex}
         variant="scrollable"
         scrollButtons="auto"
-        TabIndicatorProps={{ style: { backgroundColor: "#1d4ed8", height: 3 } }}
+        TabIndicatorProps={{
+          style: { backgroundColor: "#1d4ed8", height: 2 }, // REDUCED
+        }}
         sx={{
+          minHeight: 40, // REDUCED
           "& .MuiTab-root": {
+            minHeight: 40, // REDUCED
             textTransform: "none",
-            fontSize: "0.95rem",
+            fontSize: "0.85rem",
             fontWeight: 600,
-            color: "#475569",
-            minWidth: 0,
-            px: 2,
-            "&:hover": {
-              color: "#1d4ed8",
-              backgroundColor: "#f1f5f9",
-              borderRadius: "6px",
-            },
+            px: 1.6,
+            py: 0,
           },
           "& .Mui-selected": {
             color: "#1d4ed8 !important",
@@ -135,7 +129,7 @@ function SubNav({ tabs }) {
 }
 
 /* -------------------------------------------------------------
-   SUB NAV: KPIs  (ONLY SHOW UNDER /kpis/*)
+   SUB NAV: KPIs (GERMAN)
 ------------------------------------------------------------- */
 function KPIsSubNav() {
   const path = useLocation().pathname;
@@ -144,16 +138,16 @@ function KPIsSubNav() {
   return (
     <SubNav
       tabs={[
-        { label: "Summary", to: "/kpis/summary" },
-        { label: "Late Ops", to: "/kpis/late-ops" },
-        { label: "Log Assistant", to: "/kpis/log-assistant" },
+        { label: "Übersicht", to: "/kpis/summary" },
+        { label: "Verspätete Vorgänge", to: "/kpis/late-ops" },
+        { label: "Log-Assistent", to: "/kpis/log-assistant" },
       ]}
     />
   );
 }
 
 /* -------------------------------------------------------------
-   SUB NAV: Analysis Tools (ONLY SHOW UNDER /analysis/*)
+   SUB NAV: Analysis Tools (GERMAN)
 ------------------------------------------------------------- */
 function AnalysisToolsSubNav() {
   const path = useLocation().pathname;
@@ -162,11 +156,11 @@ function AnalysisToolsSubNav() {
   return (
     <SubNav
       tabs={[
-        { label: "Gantt", to: "/analysis/gantt" },
-        { label: "Order Routing", to: "/analysis/order-routing" },
-        { label: "Machine Context", to: "/analysis/machine-context" },
-        { label: "Utilization", to: "/analysis/utilization" },
-        { label: "Idle Time", to: "/analysis/idle-time" },
+        { label: "Plantafel", to: "/analysis/gantt" },
+        { label: "Auftragsrouting", to: "/analysis/order-routing" },
+        /*{ label: "Maschinenkontext", to: "/analysis/machine-context" },*/
+        { label: "Auslastung", to: "/analysis/utilization" },
+        { label: "Leerlaufzeiten", to: "/analysis/idle-time" },
         { label: "Heatmap", to: "/analysis/heatmap" },
       ]}
     />
@@ -174,7 +168,7 @@ function AnalysisToolsSubNav() {
 }
 
 /* -------------------------------------------------------------
-   SUB NAV: Reports (ONLY SHOW UNDER /reports/*)
+   SUB NAV: Reports (GERMAN)
 ------------------------------------------------------------- */
 function ReportsSubNav() {
   const path = useLocation().pathname;
@@ -183,54 +177,52 @@ function ReportsSubNav() {
   return (
     <SubNav
       tabs={[
-        { label: "Plan Table", to: "/reports/plan" },
-        { label: "Late Ops", to: "/reports/late-ops" },
-        { label: "Missing RT=10", to: "/reports/missing-rt10" },
-        { label: "Unplaced", to: "/reports/unplaced" },
-        { label: "Shift Injections", to: "/reports/shift" },
-        { label: "Delivery", to: "/reports/delivery" },
+        { label: "Plantabelle", to: "/reports/plan" },
+        { label: "Verspätete Vorgänge", to: "/reports/late-ops" },
+        { label: "Fehlende RT=10", to: "/reports/missing-rt10" },
+        { label: "Ungeplante", to: "/reports/unplaced" },
+        { label: "Schichtinjektionen", to: "/reports/shift" },
+        { label: "Lieferungen", to: "/reports/delivery" },
       ]}
     />
   );
 }
 
 /* -------------------------------------------------------------
-                        MAIN APP
+                       MAIN APP
 ------------------------------------------------------------- */
 export default function App() {
   return (
     <ScenarioProvider>
       <BrowserRouter>
-        {/* ---------------- TOP NAV ---------------- */}
+        {/* ---------- TOP NAV (COMPACT + GERMAN) ---------- */}
         <AppBar
           position="static"
           color="inherit"
           elevation={1}
           sx={{
-            maxWidth: "100%",
-            overflowX: "hidden", // DO NOT REMOVE
             borderBottom: "1px solid #e2e8f0",
             bgcolor: "#ffffff",
+            minHeight: 48, // REDUCED
           }}
         >
-          <Toolbar sx={{ gap: 2 }}>
-            <TopNavItem label="Scenarios" to="/" />
+          <Toolbar sx={{ gap: 1, minHeight: 48, py: 0 }}>
+            <TopNavItem label="Szenarien" to="/" />
             <TopNavItem label="Upload" to="/upload" />
-            <TopNavItem label="Schedule" to="/schedule" />
+            <TopNavItem label="Planung" to="/schedule" />
             <TopNavItem label="KPIs" to="/kpis/summary" />
-            <TopNavItem label="Analysis Tools" to="/analysis/gantt" />
-            <TopNavItem label="Reports" to="/reports/plan" />
+            <TopNavItem label="Analyse-Tools" to="/analysis/gantt" />
+            <TopNavItem label="Berichte" to="/reports/plan" />
           </Toolbar>
         </AppBar>
 
-        {/* ---------------- SUB NAV LEVEL ---------------- */}
+        {/* ---------- SUB NAVS ---------- */}
         <KPIsSubNav />
         <AnalysisToolsSubNav />
         <ReportsSubNav />
 
-        {/* ---------------- ROUTES ---------------- */}
+        {/* ---------- ROUTES ---------- */}
         <Routes>
-          {/* MAIN FLOW */}
           <Route path="/" element={<ScenarioListPage />} />
           <Route path="/upload" element={<FileUploadPage />} />
           <Route path="/schedule" element={<SchedulingPage />} />
@@ -251,7 +243,6 @@ export default function App() {
           />
 
           {/* Reports */}
-          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/reports/plan" element={<PlanTablePage />} />
           <Route path="/reports/late-ops" element={<LateOpsReportPage />} />
           <Route path="/reports/missing-rt10" element={<MissingRt10Page />} />

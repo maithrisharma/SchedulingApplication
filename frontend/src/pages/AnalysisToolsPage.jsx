@@ -16,7 +16,7 @@ import {
   ListItemText,
 } from "@mui/material";
 
-import { Close } from "@mui/icons-material";          // ⬅️ FilterList removed here
+import { Close } from "@mui/icons-material";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
 
 import GanttPage from "./GanttPage";
@@ -68,14 +68,11 @@ export default function AnalysisToolsPage() {
   };
 
   const renderMachineValue = (selected) => {
-    if (selected.length === 0) return "All Machines (Top 10 default)";
-    if (selected[0] === ALL_SENTINEL) return "All Machines";
+    if (selected.length === 0) return "Alle Maschinen (Top 10 als Standard)";
+    if (selected[0] === ALL_SENTINEL) return "Alle Maschinen";
     return selected.join(", ");
   };
 
-  /* ===========================
-      MAIN PAGE LAYOUT
-     =========================== */
   return (
     <Box
       sx={{
@@ -87,9 +84,9 @@ export default function AnalysisToolsPage() {
         bgcolor: "#f8fafc",
       }}
     >
-      {/* ---------------------------
-          LEFT FILTER DRAWER (overlay)
-         --------------------------- */}
+      {/* ----------------------------------
+          LINKER FILTERBEREICH (DRAWER)
+      ----------------------------------- */}
       <Drawer
         variant="temporary"
         anchor="left"
@@ -107,7 +104,7 @@ export default function AnalysisToolsPage() {
       >
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
           <Typography variant="h6" fontWeight={800}>
-            Global Filters
+            Globale Filter
           </Typography>
           <Button onClick={() => setOpenFilters(false)}>
             <Close />
@@ -116,9 +113,9 @@ export default function AnalysisToolsPage() {
 
         <Divider sx={{ mb: 3 }} />
 
-        {/* MACHINE SELECT */}
+        {/* MASCHINENWAHL */}
         <Typography fontWeight={600} mb={1}>
-          Machine
+          Maschine
         </Typography>
 
         <Select
@@ -132,7 +129,7 @@ export default function AnalysisToolsPage() {
         >
           <MenuItem value={ALL_SENTINEL}>
             <Checkbox checked={local.machines.includes(ALL_SENTINEL)} />
-            <ListItemText primary="All Machines" />
+            <ListItemText primary="Alle Maschinen" />
           </MenuItem>
 
           {machineList.map((m) => (
@@ -145,19 +142,19 @@ export default function AnalysisToolsPage() {
 
         <Box mt={3} />
 
-        {/* PRIORITY */}
+        {/* PRIORITÄT */}
         <Typography fontWeight={600} mb={1}>
-          Priority Group
+          Prioritätsgruppe
         </Typography>
         <Select
           fullWidth
           value={local.priority}
           onChange={(e) => setLocal({ ...local, priority: e.target.value })}
         >
-          <MenuItem value="all">All priorities</MenuItem>
-          <MenuItem value="0">Bottleneck</MenuItem>
-          <MenuItem value="1">Non-Bottleneck</MenuItem>
-          <MenuItem value="2">Unlimited</MenuItem>
+          <MenuItem value="all">Alle Prioritäten</MenuItem>
+          <MenuItem value="0">BottleNeck Maschinen</MenuItem>
+          <MenuItem value="1">NonBottleNeck Maschinen</MenuItem>
+          <MenuItem value="2">Unbegrenzt</MenuItem>
         </Select>
 
         <Box mt={3} />
@@ -171,44 +168,46 @@ export default function AnalysisToolsPage() {
           value={local.outsourcing}
           onChange={(e) => setLocal({ ...local, outsourcing: e.target.value })}
         >
-          <MenuItem value="all">All jobs</MenuItem>
-          <MenuItem value="outs">Outsourced Only</MenuItem>
+          <MenuItem value="all">Alle Aufträge</MenuItem>
+          <MenuItem value="outs">Nur Outsourcing</MenuItem>
         </Select>
 
         <Box mt={3} />
 
         {/* DEADLINE */}
         <Typography fontWeight={600} mb={1}>
-          Deadline Filter
+          Deadline-Filter
         </Typography>
         <Select
           fullWidth
           value={local.deadline}
           onChange={(e) => setLocal({ ...local, deadline: e.target.value })}
         >
-          <MenuItem value="all">All jobs</MenuItem>
-          <MenuItem value="late">Late only</MenuItem>
-          <MenuItem value="hasDeadline">Has Deadline</MenuItem>
+          <MenuItem value="all">Alle Aufträge</MenuItem>
+          <MenuItem value="late">Nur verspätete</MenuItem>
+          <MenuItem value="hasDeadline">Mit Deadline</MenuItem>
         </Select>
 
         <Box mt={3} />
 
-        {/* DATE RANGE */}
+        {/* DATUMSBEFEHL */}
         <Typography fontWeight={600} mb={1}>
-          Date Range
+          Datumsbereich
         </Typography>
+
         <Stack direction="row" spacing={2}>
           <TextField
             type="date"
-            label="From"
+            label="Von"
             InputLabelProps={{ shrink: true }}
             value={local.dateStart || ""}
             onChange={(e) => setLocal({ ...local, dateStart: e.target.value })}
             fullWidth
           />
+
           <TextField
             type="date"
-            label="To"
+            label="Bis"
             InputLabelProps={{ shrink: true }}
             value={local.dateEnd || ""}
             onChange={(e) => setLocal({ ...local, dateEnd: e.target.value })}
@@ -222,7 +221,7 @@ export default function AnalysisToolsPage() {
           sx={{ mt: 4, borderRadius: 2, py: 1.2 }}
           onClick={handleApply}
         >
-          Apply Filters
+          Filter anwenden
         </Button>
 
         <Button
@@ -231,13 +230,13 @@ export default function AnalysisToolsPage() {
           sx={{ mt: 2, borderRadius: 2, py: 1.2 }}
           onClick={clearAllFilters}
         >
-          Clear Filters
+          Filter zurücksetzen
         </Button>
       </Drawer>
 
-      {/* ---------------------------
-           MAIN CONTENT
-         --------------------------- */}
+      {/* ----------------------------------
+              HAUPTBEREICH
+      ----------------------------------- */}
       <Box
         sx={{
           flexGrow: 1,
@@ -245,8 +244,8 @@ export default function AnalysisToolsPage() {
           maxWidth: "100%",
           overflowX: "hidden",
           px: 4,
-    pt: 1,
-    pb: 4,
+          pt: 1,
+          pb: 4,
         }}
       >
         <Routes>

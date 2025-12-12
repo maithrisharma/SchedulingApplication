@@ -26,7 +26,7 @@ import { apiGet, apiFetchFile } from "../api";
 import { useScenario } from "../context/ScenarioContext";
 
 const monthNames = [
-  "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
+  "Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"
 ];
 
 const dateFields = ["injected_start", "injected_end"];
@@ -215,10 +215,10 @@ export default function ShiftInjectionsPage() {
     <ThemeProvider theme={gridTheme}>
       <Box sx={{ p: 4, bgcolor: "#f1f5f9", minHeight: "100vh" }}>
         <Typography variant="h4" align="center" fontWeight="bold" gutterBottom>
-          Shift Injections
+          Schicht-Injectionen
         </Typography>
         <Typography align="center" color="text.secondary" mb={4}>
-          Scenario:{" "}
+          Szenario:{" "}
           <strong style={{ color: "#2563eb" }}>{scenario || "-"}</strong>
         </Typography>
 
@@ -232,7 +232,7 @@ export default function ShiftInjectionsPage() {
                 displayEmpty
                 sx={{ minWidth: 300, bgcolor: "white", borderRadius: 2, ".MuiOutlinedInput-input": { py: 1.5 } }}
               >
-                <MenuItem value="" disabled><em>Select scenario</em></MenuItem>
+                <MenuItem value="" disabled><em>Szenario auswählen</em></MenuItem>
                 {scenarioList.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
               </Select>
 
@@ -251,10 +251,10 @@ export default function ShiftInjectionsPage() {
                   setExpandedYears({});
                   setExpandedMonths({});
                 }}>
-                  Clear Filters
+                  Filter löschen
                 </Button>
                 <Button variant="contained" startIcon={<Download />} disabled={!scenario} onClick={() => apiFetchFile(`/visual/${scenario}/shift-injections-excel`, `${scenario}_shift_injections.xlsx`)}>
-                  Download Excel
+                  Excel herunterladen
                 </Button>
               </Stack>
             </Stack>
@@ -278,14 +278,14 @@ export default function ShiftInjectionsPage() {
           {activeValueField && (
             <Box sx={{ p: 2, width: 260, maxHeight: 460, overflowY: "auto" }}>
               <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>{activeValueField}</Typography>
-              <TextField size="small" fullWidth placeholder="Search" value={valueFilterSearch} onChange={(e) => setValueFilterSearch(e.target.value)} sx={{ mb: 1 }} />
+              <TextField size="small" fullWidth placeholder="Suchen..." value={valueFilterSearch} onChange={(e) => setValueFilterSearch(e.target.value)} sx={{ mb: 1 }} />
               <Stack direction="row" spacing={1} mb={1}>
                 <Button size="small" onClick={() => {
                   const { options, hasBlank } = valueOptions[activeValueField] || { options: [], hasBlank: false };
                   const selected = [...options, ...(hasBlank ? [BLANK_KEY] : [])];
                   setValueFilters(prev => ({ ...prev, [activeValueField]: { active: true, selected } }));
-                }}>Select All</Button>
-                <Button size="small" onClick={() => setValueFilters(prev => ({ ...prev, [activeValueField]: { active: false, selected: [] } }))}>Clear</Button>
+                }}>Alle auswählen</Button>
+                <Button size="small" onClick={() => setValueFilters(prev => ({ ...prev, [activeValueField]: { active: false, selected: [] } }))}>Leeren</Button>
               </Stack>
               <Divider sx={{ mb: 1 }} />
               {(() => {
@@ -300,13 +300,13 @@ export default function ShiftInjectionsPage() {
                       e.target.checked ? selected.add(key) : selected.delete(key);
                       setValueFilters(prev => ({ ...prev, [activeValueField]: { active: true, selected: Array.from(selected) } }));
                     }} />}
-                    label={key === BLANK_KEY ? "(Blanks)" : key}
+                    label={key === BLANK_KEY ? "(Leer)" : key}
                     sx={{ display: "block", mr: 0 }}
                   />
                 ));
               })()}
               <Box sx={{ textAlign: "right", mt: 1 }}>
-                <Button size="small" variant="contained" onClick={() => setValueFilterAnchor(null)}>Apply</Button>
+                <Button size="small" variant="contained" onClick={() => setValueFilterAnchor(null)}>Anwenden</Button>
               </Box>
             </Box>
           )}
@@ -326,18 +326,18 @@ export default function ShiftInjectionsPage() {
                   });
                 });
                 setDateFilters(prev => ({ ...prev, [activeDateField]: { selected, includeNull: tree.hasNull } }));
-              }}>Select All</Button>
-              <Button size="small" onClick={() => setDateFilters(prev => ({ ...prev, [activeDateField]: { selected: [], includeNull: false } }))}>Clear</Button>
+              }}>Alle auswählen</Button>
+              <Button size="small" onClick={() => setDateFilters(prev => ({ ...prev, [activeDateField]: { selected: [], includeNull: false } }))}>Leeren</Button>
             </Stack>
             <Divider sx={{ mb: 1 }} />
             {dateTrees[activeDateField]?.hasNull && (
               <FormControlLabel
                 control={<Checkbox size="small" checked={dateFilters[activeDateField]?.includeNull} onChange={(e) => setDateFilters(prev => ({ ...prev, [activeDateField]: { ...prev[activeDateField], includeNull: e.target.checked } }))} />}
-                label="(No Date)"
+                label="(Kein Datum)"
               />
             )}
             {Object.keys(dateTrees[activeDateField]?.years || {}).length === 0 ? (
-              <Typography variant="body2" color="text.secondary">No dates available.</Typography>
+              <Typography variant="body2" color="text.secondary">Keine Datumswerte vorhanden.</Typography>
             ) : (
               Object.entries(dateTrees[activeDateField].years)
                 .sort(([a], [b]) => Number(a) - Number(b))
@@ -433,7 +433,7 @@ export default function ShiftInjectionsPage() {
                 })
             )}
             <Box sx={{ textAlign: "right", mt: 1 }}>
-              <Button size="small" variant="contained" onClick={() => setDateFilterAnchor(null)}>Apply</Button>
+              <Button size="small" variant="contained" onClick={() => setDateFilterAnchor(null)}>Anwenden</Button>
             </Box>
           </Box>
         </Popover>

@@ -45,18 +45,12 @@ export default function UtilizationPage({ onOpenFilters }) {
 
   const [mode, setMode] = useState("hours"); // hours | pct
 
-  /* ================================================================
-     LOAD SCENARIO LIST
-  ================================================================ */
   useEffect(() => {
     apiGet("/scenarios/list").then((res) => {
       setScenarioList(res.scenarios || []);
     });
   }, []);
 
-  /* ================================================================
-     LOAD UTILIZATION DATA
-  ================================================================ */
   useEffect(() => {
     if (!scenario) return;
 
@@ -68,27 +62,22 @@ export default function UtilizationPage({ onOpenFilters }) {
         setLoading(false);
       })
       .catch(() => {
-        setErr("Failed to load utilization data");
+        setErr("Auslastungsdaten konnten nicht geladen werden.");
         setLoading(false);
       });
   }, [scenario]);
 
-  /* ================================================================
-     FILTERED MACHINE LIST (based on Global Filters)
-  ================================================================ */
   const filteredMachines = useMemo(() => {
     if (!utilData) return [];
 
     let machines = Object.keys(utilData.machine_hours);
 
-    // MACHINE FILTER
     if (filters.machines.length === 0) {
       machines = utilData.top10_machines;
     } else if (filters.machines[0] !== ALL_SENTINEL) {
       machines = filters.machines;
     }
 
-    // PRIORITY FILTER
     if (filters.priority !== "all") {
       const wantBN = filters.priority === "0";
       const wantNBN = filters.priority === "1";
@@ -105,9 +94,6 @@ export default function UtilizationPage({ onOpenFilters }) {
     return machines;
   }, [utilData, filters]);
 
-  /* ================================================================
-     GRID DATA FOR CHARTS
-  ================================================================ */
   const barData = useMemo(() => {
     if (!utilData) return [];
 
@@ -130,16 +116,10 @@ export default function UtilizationPage({ onOpenFilters }) {
     }, {});
   }, [utilData, filteredMachines]);
 
-  /* ================================================================
-     RENDER PAGE
-  ================================================================ */
   return (
     <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", px: 3, pt: 2 }}>
       <Box sx={{ maxWidth: 1600, mx: "auto" }}>
-
-        {/* =====================================================
-            TITLE + FILTERS BUTTON (MATCH GANTT PAGE)
-        ===================================================== */}
+        {/* ========================== TITLE ========================== */}
         <Box sx={{ position: "relative", mb: 2, mt: 1 }}>
           <Typography
             variant="h4"
@@ -149,10 +129,9 @@ export default function UtilizationPage({ onOpenFilters }) {
               color: "#0f172a",
             }}
           >
-            Machine Utilization
+            Maschinen­auslastung
           </Typography>
 
-          {/* Filters button aligned to top right */}
           {onOpenFilters && (
             <Button
               variant="text"
@@ -167,11 +146,10 @@ export default function UtilizationPage({ onOpenFilters }) {
                 color: "#0f3b63",
               }}
             >
-              Filters
+              Filter
             </Button>
           )}
 
-          {/* Subtitle */}
           <Typography
             variant="subtitle1"
             sx={{
@@ -180,14 +158,12 @@ export default function UtilizationPage({ onOpenFilters }) {
               mt: 1,
             }}
           >
-            Scenario:&nbsp;
+            Szenario:&nbsp;
             <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
           </Typography>
         </Box>
 
-        {/* =====================================================
-            ERRORS & LOADING
-        ===================================================== */}
+        {/* ======================== ERRORS / LOADING ======================== */}
         {err && <Alert severity="error">{err}</Alert>}
 
         {loading && (
@@ -196,12 +172,10 @@ export default function UtilizationPage({ onOpenFilters }) {
           </Box>
         )}
 
-        {/* =====================================================
-            MAIN CONTENT
-        ===================================================== */}
+        {/* ========================= CONTENT ========================= */}
         {!loading && utilData && (
           <>
-            {/* Scenario Selector + Toggle */}
+            {/* Scenario selector + toggle */}
             <Stack
               direction={{ xs: "column", md: "row" }}
               justifyContent="space-between"
@@ -216,7 +190,7 @@ export default function UtilizationPage({ onOpenFilters }) {
                 sx={{ minWidth: 260 }}
               >
                 <MenuItem value="">
-                  <em>Select Scenario</em>
+                  <em>Szenario auswählen</em>
                 </MenuItem>
                 {scenarioList.map((s) => (
                   <MenuItem key={s} value={s}>
@@ -231,8 +205,8 @@ export default function UtilizationPage({ onOpenFilters }) {
                 onChange={(e, v) => v && setMode(v)}
                 size="small"
               >
-                <ToggleButton value="hours">Hours Used</ToggleButton>
-                <ToggleButton value="pct">% Utilized</ToggleButton>
+                <ToggleButton value="hours">Stunden genutzt</ToggleButton>
+                <ToggleButton value="pct">% Auslastung</ToggleButton>
               </ToggleButtonGroup>
             </Stack>
 
@@ -240,8 +214,8 @@ export default function UtilizationPage({ onOpenFilters }) {
             <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
               <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
                 {mode === "hours"
-                  ? "Total Hours Used (Top-Down View)"
-                  : "Utilization % (Top-Down View)"}
+                  ? "Gesamte genutzte Stunden (Top-Down)"
+                  : "Auslastung in % (Top-Down)"}
               </Typography>
 
               <ResponsiveContainer width="100%" height={400}>
@@ -253,20 +227,20 @@ export default function UtilizationPage({ onOpenFilters }) {
                   <Legend />
 
                   {mode === "hours" ? (
-                    <Bar dataKey="hours" fill="#3b82f6" name="Hours Used" />
+                    <Bar dataKey="hours" fill="#3b82f6" name="Stunden genutzt" />
                   ) : (
-                    <Bar dataKey="pct" fill="#10b981" name="% Utilized" />
+                    <Bar dataKey="pct" fill="#10b981" name="% Auslastung" />
                   )}
 
-                  <Bar dataKey="jobs" fill="#f59e0b" name="Jobs Count" />
+                  <Bar dataKey="jobs" fill="#f59e0b" name="Auftragsanzahl" />
                 </BarChart>
               </ResponsiveContainer>
             </Card>
 
-            {/* BN vs NBN COMPARISON */}
+            {/* BN vs NBN */}
             <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
               <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-                BN vs NBN Utilization (Hours)
+                BN vs. NBN Auslastung (Stunden)
               </Typography>
 
               <ResponsiveContainer width="100%" height={400}>
@@ -276,15 +250,15 @@ export default function UtilizationPage({ onOpenFilters }) {
                   <YAxis />
                   <RTooltip />
                   <Legend />
-                  <Bar dataKey="bn" fill="#ef4444" name="Bottleneck Hours" />
-                  <Bar dataKey="nbn" fill="#3b82f6" name="Non-Bottleneck Hours" />
+                  <Bar dataKey="bn" fill="#ef4444" name="BN Stunden" />
+                  <Bar dataKey="nbn" fill="#3b82f6" name="NBN Stunden" />
                 </BarChart>
               </ResponsiveContainer>
             </Card>
 
             {/* DAILY TRENDS */}
             <Typography variant="h5" fontWeight={800} sx={{ mb: 3 }}>
-              Daily Utilization Trends
+              Tägliche Auslastungsentwicklung
             </Typography>
 
             {filteredMachines.map((m) => (
@@ -306,6 +280,7 @@ export default function UtilizationPage({ onOpenFilters }) {
                       stroke="#3b82f6"
                       strokeWidth={2}
                       dot={false}
+                      name="Stunden"
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -315,7 +290,7 @@ export default function UtilizationPage({ onOpenFilters }) {
         )}
 
         {!loading && !utilData && (
-          <Alert severity="warning">No utilization data available.</Alert>
+          <Alert severity="warning">Keine Auslastungsdaten verfügbar.</Alert>
         )}
       </Box>
     </Box>

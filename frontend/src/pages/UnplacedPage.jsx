@@ -35,18 +35,8 @@ import { useScenario } from "../context/ScenarioContext";
 // =============================================
 
 const monthNames = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
+  "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+  "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
 ];
 
 const dateField = "LatestStartDate"; // only date field for Unplaced
@@ -354,11 +344,11 @@ export default function UnplacedPage() {
     <ThemeProvider theme={gridTheme}>
       <Box sx={{ p: 4, bgcolor: "#f1f5f9", minHeight: "100vh" }}>
         <Typography variant="h4" align="center" fontWeight="bold" gutterBottom>
-          Unplaced Jobs
+          Ungeplante Arbeitsvorgänge
         </Typography>
 
         <Typography align="center" color="text.secondary" mb={4}>
-          Scenario:{" "}
+          Szenario:{" "}
           <strong style={{ color: "#2563eb" }}>{scenario || "-"}</strong>
         </Typography>
 
@@ -378,12 +368,12 @@ export default function UnplacedPage() {
                     displayEmpty
                     onChange={(e) => setScenario(e.target.value)}
                     renderValue={(selected) =>
-                      selected || "Select scenario"
+                      selected || "Szenario auswählen"
                     }
                   >
                     {scenarioList.length === 0 && (
                       <MenuItem value="">
-                        <em>No scenarios</em>
+                        <em>Keine Szenarien</em>
                       </MenuItem>
                     )}
                     {scenarioList.map((s) => (
@@ -410,7 +400,7 @@ export default function UnplacedPage() {
                     setExpandedMonths({});
                   }}
                 >
-                  Clear Filters
+                  Filter löschen
                 </Button>
                 <Button
                   variant="contained"
@@ -423,7 +413,7 @@ export default function UnplacedPage() {
                     )
                   }
                 >
-                  Download Excel
+                  Excel herunterladen
                 </Button>
 
 
@@ -465,7 +455,7 @@ export default function UnplacedPage() {
               <TextField
                 size="small"
                 fullWidth
-                placeholder="Search"
+                placeholder="Suchen..."
                 value={valueFilterSearch}
                 onChange={(e) => setValueFilterSearch(e.target.value)}
                 sx={{ mb: 1 }}
@@ -489,7 +479,7 @@ export default function UnplacedPage() {
                     }));
                   }}
                 >
-                  Select All
+                  Alle auswählen
                 </Button>
                 <Button
                   size="small"
@@ -500,7 +490,7 @@ export default function UnplacedPage() {
                     }));
                   }}
                 >
-                  Clear
+                  Leeren
                 </Button>
               </Stack>
 
@@ -562,7 +552,7 @@ export default function UnplacedPage() {
                         }}
                       />
                     }
-                    label={key === BLANK_KEY ? "(Blanks)" : key}
+                    label={key === BLANK_KEY ? "(Leer)" : key}
                     sx={{ display: "block", mr: 0 }}
                   />
                 ));
@@ -577,7 +567,7 @@ export default function UnplacedPage() {
                     setActiveValueField(null);
                   }}
                 >
-                  Apply
+                  Anwenden
                 </Button>
               </Box>
             </Box>
@@ -622,7 +612,7 @@ export default function UnplacedPage() {
                   });
                 }}
               >
-                Select All
+                Alle auswählen
               </Button>
 
               <Button
@@ -631,7 +621,7 @@ export default function UnplacedPage() {
                   setDateFilter({ selected: [], includeNull: false })
                 }
               >
-                Clear
+                Leeren
               </Button>
             </Stack>
 
@@ -653,7 +643,7 @@ export default function UnplacedPage() {
                       }
                     />
                   }
-                  label="(No Date)"
+                  label="(Kein Datum)"
                 />
                 <Divider sx={{ mt: 1 }} />
               </Box>
@@ -662,7 +652,7 @@ export default function UnplacedPage() {
             {/* Year → Month → Day Tree (collapsible, days vertical) */}
             {Object.keys(dateTree.years).length === 0 ? (
               <Typography variant="body2" color="text.secondary">
-                No dates available.
+                Keine Datumswerte vorhanden.
               </Typography>
             ) : (
               Object.entries(dateTree.years)
@@ -885,7 +875,7 @@ export default function UnplacedPage() {
                 variant="contained"
                 onClick={() => setDateFilterAnchor(null)}
               >
-                Apply
+                Anwenden
               </Button>
             </Box>
           </Box>

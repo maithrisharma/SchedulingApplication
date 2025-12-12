@@ -36,18 +36,8 @@ import { useScenario } from "../context/ScenarioContext";
 // -------------------- CONSTANTS --------------------
 
 const monthNames = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
+  "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+  "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
 ];
 
 // Dates present in late.csv
@@ -569,11 +559,11 @@ export default function LateOpsReportPage() {
     <ThemeProvider theme={gridTheme}>
       <Box sx={{ p: 4, bgcolor: "#f1f5f9", minHeight: "100vh" }}>
         <Typography variant="h4" align="center" fontWeight="bold" gutterBottom>
-          Late Operations
+          Verspätete Arbeitsvorgänge
         </Typography>
 
         <Typography align="center" color="text.secondary" mb={4}>
-          Scenario:{" "}
+          Szenario:{" "}
           <strong style={{ color: "#2563eb" }}>{scenario || "-"}</strong>
         </Typography>
 
@@ -593,12 +583,12 @@ export default function LateOpsReportPage() {
                     displayEmpty
                     onChange={(e) => setScenario(e.target.value)}
                     renderValue={(selected) =>
-                      selected || "Select scenario"
+                      selected || "Szenario auswählen"
                     }
                   >
                     {scenarioList.length === 0 && (
                       <MenuItem value="">
-                        <em>No scenarios</em>
+                        <em>Keine Szenarien verfügbar</em>
                       </MenuItem>
                     )}
                     {scenarioList.map((s) => (
@@ -616,7 +606,7 @@ export default function LateOpsReportPage() {
                   startIcon={<ClearAll />}
                   onClick={handleClearAllFilters}
                 >
-                  Clear Filters
+                  Filter zurücksetzen
                 </Button>
                 <Button
                   variant="contained"
@@ -629,7 +619,7 @@ export default function LateOpsReportPage() {
                     )
                   }
                 >
-                  Download Excel
+                  Excel herunterladen
                 </Button>
 
               </Stack>
@@ -691,7 +681,7 @@ export default function LateOpsReportPage() {
                     }));
                   }}
                 >
-                  Select All
+                  Alles auswählen
                 </Button>
                 <Button
                   size="small"
@@ -704,7 +694,7 @@ export default function LateOpsReportPage() {
                     setMonthOpenMap({});
                   }}
                 >
-                  Clear
+                  Leeren
                 </Button>
               </Stack>
 
@@ -729,7 +719,7 @@ export default function LateOpsReportPage() {
                         }}
                       />
                     }
-                    label="(No Date)"
+                    label="(Kein Datum)"
                   />
                   <Divider sx={{ mt: 1 }} />
                 </Box>
@@ -737,7 +727,7 @@ export default function LateOpsReportPage() {
 
               {Object.keys(activeDateTree.years).length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  No dates available.
+                  Keine Datumswerte vorhanden.
                 </Typography>
               ) : (
                 Object.entries(activeDateTree.years)
@@ -992,7 +982,7 @@ export default function LateOpsReportPage() {
                   variant="contained"
                   onClick={handleCloseDateFilter}
                 >
-                  Apply
+                  Anwenden
                 </Button>
               </Box>
             </Box>
@@ -1018,7 +1008,7 @@ export default function LateOpsReportPage() {
               <TextField
                 size="small"
                 fullWidth
-                placeholder="Search"
+                placeholder="Suchen..."
                 value={valueFilterSearch}
                 onChange={(e) => setValueFilterSearch(e.target.value)}
                 sx={{ mb: 1 }}
@@ -1039,7 +1029,7 @@ export default function LateOpsReportPage() {
                     }));
                   }}
                 >
-                  Select All
+                  Alle auswählen
                 </Button>
                 <Button
                   size="small"
@@ -1050,7 +1040,7 @@ export default function LateOpsReportPage() {
                     }));
                   }}
                 >
-                  Clear
+                  Leeren
                 </Button>
               </Stack>
 
@@ -1064,7 +1054,7 @@ export default function LateOpsReportPage() {
                   ...options.map((v) => v),
                 ].filter((key) => {
                   const label =
-                    key === BLANK_KEY ? "(Blanks)" : String(key ?? "");
+                    key === BLANK_KEY ? "(Leer)" : String(key ?? "");
                   return label.toLowerCase().includes(searchLower);
                 });
 
@@ -1075,7 +1065,7 @@ export default function LateOpsReportPage() {
                       color="text.secondary"
                       sx={{ mb: 1 }}
                     >
-                      No values.
+                      Keine Werte gefunden.
                     </Typography>
                   );
                 }
@@ -1086,7 +1076,7 @@ export default function LateOpsReportPage() {
                   <Box>
                     {items.map((key) => {
                       const label =
-                        key === BLANK_KEY ? "(Blanks)" : String(key ?? "");
+                        key === BLANK_KEY ? "(Leer)" : String(key ?? "");
                       const checked = selectedSet.has(key);
                       return (
                         <FormControlLabel
@@ -1132,7 +1122,7 @@ export default function LateOpsReportPage() {
                   variant="contained"
                   onClick={handleCloseValueFilter}
                 >
-                  Apply
+                  Anwenden
                 </Button>
               </Box>
             </Box>

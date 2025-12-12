@@ -38,18 +38,8 @@ import { useScenario } from "../context/ScenarioContext";
 // -------------------- CONSTANTS --------------------
 
 const monthNames = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
+  "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+  "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
 ];
 
 const dateFields = ["Start", "End", "LatestStartDate", "OutsourcingDelivery"];
@@ -132,8 +122,8 @@ function fmtDate(v) {
 }
 
 function boolToText(v) {
-  if (v === true) return "Yes";
-  if (v === false) return "No";
+  if (v === true) return "Ja";
+  if (v === false) return "Nein";
   return "";
 }
 
@@ -447,11 +437,11 @@ export default function PlanTablePage() {
     },
     {
       field: "OrderNo",
-      headerName: "OrderNo",
+      headerName: "OrderNo.",
       width: 120,
       renderHeader: () => (
         <HeaderWithFilter
-          label="OrderNo"
+          label="OrderNo."
           active={valueFilters.OrderNo?.active}
           onClick={handleOpenValueFilter("OrderNo")}
         />
@@ -793,11 +783,11 @@ export default function PlanTablePage() {
     <ThemeProvider theme={gridTheme}>
       <Box sx={{ p: 4, bgcolor: "#f1f5f9", minHeight: "100vh" }}>
         <Typography variant="h4" align="center" fontWeight="bold" gutterBottom>
-          Plan Table View
+          Plantabellen-Ansicht
         </Typography>
 
         <Typography align="center" color="text.secondary" mb={4}>
-          Scenario:{" "}
+          Szenario:{" "}
           <strong style={{ color: "#2563eb" }}>{scenario || "-"}</strong>
         </Typography>
 
@@ -816,11 +806,11 @@ export default function PlanTablePage() {
                     value={scenario || ""}
                     displayEmpty
                     onChange={(e) => setScenario(e.target.value)}
-                    renderValue={(selected) => selected || "Select scenario"}
+                    renderValue={(selected) => selected || "Szenario wählen"}
                   >
                     {scenarioOptions.length === 0 && (
                       <MenuItem value="">
-                        <em>No scenarios</em>
+                        <em>Keine Szenarien</em>
                       </MenuItem>
                     )}
                     {scenarioOptions.map((s) => (
@@ -836,8 +826,8 @@ export default function PlanTablePage() {
                   onChange={(_, v) => setActiveTab(v)}
                   sx={{ minHeight: 44 }}
                 >
-                  <Tab label="Machine View" sx={{ minHeight: 44 }} />
-                  <Tab label="Order View" sx={{ minHeight: 44 }} />
+                  <Tab label="Maschinenansicht" sx={{ minHeight: 44 }} />
+                  <Tab label="Auftragsansicht" sx={{ minHeight: 44 }} />
                 </Tabs>
               </Stack>
 
@@ -847,7 +837,7 @@ export default function PlanTablePage() {
                   startIcon={<ClearAll />}
                   onClick={handleClearAllFilters}
                 >
-                  Clear Filters
+                  Filter zurücksetzen
                 </Button>
                 <Button
                   variant="contained"
@@ -860,7 +850,7 @@ export default function PlanTablePage() {
                   }
                   disabled={!scenario}
                 >
-                  Download Excel
+                  Excel herunterladen
                 </Button>
 
               </Stack>
@@ -906,17 +896,17 @@ export default function PlanTablePage() {
                   <FormControlLabel
                     value="all"
                     control={<Radio size="small" />}
-                    label="All"
+                    label="Alle"
                   />
                   <FormControlLabel
                     value="yes"
                     control={<Radio size="small" />}
-                    label="Yes"
+                    label="Ja"
                   />
                   <FormControlLabel
                     value="no"
                     control={<Radio size="small" />}
-                    label="No"
+                    label="Nein"
                   />
                 </RadioGroup>
               </FormControl>
@@ -926,7 +916,7 @@ export default function PlanTablePage() {
                   variant="contained"
                   onClick={handleCloseBoolFilter}
                 >
-                  Apply
+                  Anwenden
                 </Button>
               </Box>
             </Box>
@@ -976,7 +966,7 @@ export default function PlanTablePage() {
                     }));
                   }}
                 >
-                  Select All
+                  Alle auswählen
                 </Button>
                 <Button
                   size="small"
@@ -987,7 +977,7 @@ export default function PlanTablePage() {
                     }));
                   }}
                 >
-                  Clear
+                  Löschen
                 </Button>
               </Stack>
 
@@ -1013,7 +1003,7 @@ export default function PlanTablePage() {
                         }}
                       />
                     }
-                    label="(No Date)"
+                    label="(Kein Datum)"
                   />
                   <Divider sx={{ mt: 1 }} />
                 </Box>
@@ -1021,7 +1011,7 @@ export default function PlanTablePage() {
 
               {Object.keys(activeDateTree.years).length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  No dates available.
+                  Keine Daten verfügbar.
                 </Typography>
               ) : (
                 Object.entries(activeDateTree.years)
@@ -1285,7 +1275,7 @@ export default function PlanTablePage() {
                   variant="contained"
                   onClick={handleCloseDateFilter}
                 >
-                  Apply
+                  Anwenden
                 </Button>
               </Box>
             </Box>
@@ -1311,7 +1301,7 @@ export default function PlanTablePage() {
               <TextField
                 size="small"
                 fullWidth
-                placeholder="Search"
+                placeholder="Suchen..."
                 value={valueFilterSearch}
                 onChange={(e) => setValueFilterSearch(e.target.value)}
                 sx={{ mb: 1 }}
@@ -1332,7 +1322,7 @@ export default function PlanTablePage() {
                     }));
                   }}
                 >
-                  Select All
+                  Alle auswählen
                 </Button>
                 <Button
                   size="small"
@@ -1343,7 +1333,7 @@ export default function PlanTablePage() {
                     }));
                   }}
                 >
-                  Clear
+                  Löschen
                 </Button>
               </Stack>
 
@@ -1357,7 +1347,7 @@ export default function PlanTablePage() {
                   ...options.map((v) => v),
                 ].filter((key) => {
                   const label =
-                    key === BLANK_KEY ? "(Blanks)" : String(key ?? "");
+                    key === BLANK_KEY ? "(Leer)" : String(key ?? "");
                   return label.toLowerCase().includes(searchLower);
                 });
 
@@ -1368,7 +1358,7 @@ export default function PlanTablePage() {
                       color="text.secondary"
                       sx={{ mb: 1 }}
                     >
-                      No values.
+                      Keine Daten.
                     </Typography>
                   );
                 }
@@ -1379,7 +1369,7 @@ export default function PlanTablePage() {
                   <Box>
                     {items.map((key) => {
                       const label =
-                        key === BLANK_KEY ? "(Blanks)" : String(key ?? "");
+                        key === BLANK_KEY ? "(Leer)" : String(key ?? "");
                       const checked = selectedSet.has(key);
                       return (
                         <FormControlLabel
@@ -1425,7 +1415,7 @@ export default function PlanTablePage() {
                   variant="contained"
                   onClick={handleCloseValueFilter}
                 >
-                  Apply
+                  Anwenden
                 </Button>
               </Box>
             </Box>

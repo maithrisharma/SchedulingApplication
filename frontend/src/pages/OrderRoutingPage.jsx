@@ -17,11 +17,11 @@ import { apiGet } from "../api";
 import OrderRoutingChart from "../components/OrderRoutingChart";
 
 export default function OrderRoutingPage() {
-  const { scenario, setScenario } = useScenario();
+  const { scenario, setScenario, selectedOrder, setSelectedOrder } =
+    useScenario();
 
   const [scenarioList, setScenarioList] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [selectedOrder, setSelectedOrder] = useState("");
 
   const [operations, setOperations] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -38,46 +38,61 @@ export default function OrderRoutingPage() {
   useEffect(() => {
     if (!scenario) return;
     setLoading(true);
+    setErr("");
 
     apiGet(`/visualize/${scenario}`)
       .then((res) => {
         if (res.plan) {
           const list = [...new Set(res.plan.map((p) => String(p.OrderNo)))];
           setOrders(list);
-        } else setOrders([]);
-        setLoading(false);
+        } else {
+          setOrders([]);
+        }
       })
       .catch(() => {
         setOrders([]);
-        setLoading(false);
-      });
+        setErr("Auftragsliste konnte nicht geladen werden.");
+      })
+      .finally(() => setLoading(false));
   }, [scenario]);
 
-  /* LOAD OPERATIONS */
+  /* LOAD OPERATIONS FOR SELECTED ORDER */
   useEffect(() => {
-    if (!scenario || !selectedOrder) return;
+    if (!scenario || !selectedOrder) {
+      setOperations([]);
+      return;
+    }
+
     setLoading(true);
+    setErr("");
 
     apiGet(`/visualize/${scenario}/order/${selectedOrder}`)
       .then((res) => {
         setOperations(res.operations || []);
-        setLoading(false);
       })
       .catch(() => {
         setOperations([]);
-        setLoading(false);
-      });
+        setErr("Auftragsrouting konnte nicht geladen werden.");
+      })
+      .finally(() => setLoading(false));
   }, [scenario, selectedOrder]);
 
   return (
     <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", px: 3, pt: 3 }}>
       <Box sx={{ maxWidth: 1600, mx: "auto" }}>
-        <Typography variant="h4" sx={{ fontWeight: 800, textAlign: "center", mb: 1 }}>
-          Order Routing
+        <Typography
+          variant="h4"
+          sx={{ fontWeight: 800, textAlign: "center", mb: 1 }}
+        >
+          Auftragsrouting
         </Typography>
 
-        <Typography variant="subtitle1" sx={{ textAlign: "center", color: "#64748b", mb: 3 }}>
-          Scenario: <strong style={{ color: "#3b82f6" }}>{scenario}</strong>
+        <Typography
+          variant="subtitle1"
+          sx={{ textAlign: "center", color: "#64748b", mb: 3 }}
+        >
+          Szenario:{" "}
+          <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
         </Typography>
 
         <Card sx={{ borderRadius: 4, p: 3 }}>
@@ -95,7 +110,7 @@ export default function OrderRoutingPage() {
               sx={{ minWidth: 260 }}
             >
               <MenuItem value="">
-                <em>Select Scenario</em>
+                <em>Szenario auswählen</em>
               </MenuItem>
 
               {scenarioList.map((s) => (
@@ -107,10 +122,12 @@ export default function OrderRoutingPage() {
 
             <Autocomplete
               options={orders}
-              value={selectedOrder}
-              onChange={(e, v) => setSelectedOrder(v)}
+              value={selectedOrder || null}
+              onChange={(e, v) => setSelectedOrder(v || "")}
               sx={{ width: 300 }}
-              renderInput={(params) => <TextField {...params} label="Select Order" />}
+              renderInput={(params) => (
+                <TextField {...params} label="Auftrag auswählen" />
+              )}
             />
           </Stack>
 
@@ -122,8 +139,10 @@ export default function OrderRoutingPage() {
             </Box>
           )}
 
-          {!loading && selectedOrder && operations.length === 0 && (
-            <Alert severity="warning">No operations found for this order.</Alert>
+          {!loading && selectedOrder && operations.length === 0 && !err && (
+            <Alert severity="warning">
+              Keine Vorgänge für diesen Auftrag gefunden.
+            </Alert>
           )}
 
           {!loading && operations.length > 0 && (

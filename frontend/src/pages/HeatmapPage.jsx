@@ -14,8 +14,8 @@ import {
   IconButton,
   Button,
 } from "@mui/material";
-import { ZoomIn, ZoomOut, FitScreen } from "@mui/icons-material";
-import { FilterList } from "@mui/icons-material";
+
+import { ZoomIn, ZoomOut, FitScreen, FilterList } from "@mui/icons-material";
 
 import { useScenario } from "../context/ScenarioContext";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
@@ -36,12 +36,12 @@ export default function HeatmapPage({ onOpenFilters }) {
   const [range, setRange] = useState("full");
   const [zoom, setZoom] = useState(1);
 
-  // Load scenarios
+  // Szenarien laden
   useEffect(() => {
     apiGet("/scenarios/list").then((res) => setScenarioList(res.scenarios || []));
   }, []);
 
-  // Load heatmap data
+  // Heatmap-Daten laden
   useEffect(() => {
     if (!scenario) return;
     setLoading(true);
@@ -52,23 +52,25 @@ export default function HeatmapPage({ onOpenFilters }) {
         setLoading(false);
       })
       .catch(() => {
-        setErr("Failed to load heatmap data.");
+        setErr("Heatmap-Daten konnten nicht geladen werden.");
         setLoading(false);
       });
   }, [scenario]);
 
-  // Apply filters
+  // Filter anwenden
   const filtered = useMemo(() => {
     if (!data || !data.machines) return null;
 
     let machines = [...data.machines];
 
+    // Maschinenfilter
     if (filters.machines.length === 0) {
       machines = data.top10_machines ?? machines.slice(0, 15);
     } else if (filters.machines[0] !== ALL_SENTINEL) {
       machines = filters.machines;
     }
 
+    // Datumsfilter
     let dates = data.dates.map((d) => new Date(d));
     if (filters.dateStart) dates = dates.filter((d) => d >= new Date(filters.dateStart));
     if (filters.dateEnd) dates = dates.filter((d) => d <= new Date(filters.dateEnd));
@@ -100,7 +102,7 @@ export default function HeatmapPage({ onOpenFilters }) {
     );
 
   if (err) return <Alert severity="error">{err}</Alert>;
-  if (!filtered) return <Alert severity="warning">No data available.</Alert>;
+  if (!filtered) return <Alert severity="warning">Keine Daten verfügbar.</Alert>;
 
   const maxValue = Math.max(...filtered.values.flat(), 1);
 
@@ -117,9 +119,7 @@ export default function HeatmapPage({ onOpenFilters }) {
     >
       <Box sx={{ maxWidth: 1600, mx: "auto" }}>
 
-        {/* =====================================================
-            TITLE + FILTERS BUTTON (MATCHES ALL OTHER PAGES)
-        ===================================================== */}
+        {/* Titel + Filter-Button */}
         <Box sx={{ position: "relative", mb: 2, mt: 1 }}>
           <Typography
             variant="h4"
@@ -128,10 +128,9 @@ export default function HeatmapPage({ onOpenFilters }) {
               textAlign: "center",
             }}
           >
-            Machine Utilization Heatmap
+            Maschinen-Auslastungs-Heatmap
           </Typography>
 
-          {/* FILTER BUTTON — top right */}
           {onOpenFilters && (
             <Button
               variant="text"
@@ -146,11 +145,10 @@ export default function HeatmapPage({ onOpenFilters }) {
                 color: "#0f3b63",
               }}
             >
-              Filters
+              Filter
             </Button>
           )}
 
-          {/* Subtitle */}
           <Typography
             variant="subtitle1"
             sx={{
@@ -159,17 +157,15 @@ export default function HeatmapPage({ onOpenFilters }) {
               mt: 1,
             }}
           >
-            Scenario: <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
+            Szenario: <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
           </Typography>
         </Box>
 
-        {/* =====================================================
-            CARD + CONTROLS
-        ===================================================== */}
+        {/* Karte mit Steuerung */}
         <Card sx={{ borderRadius: 4 }}>
           <CardContent sx={{ p: { xs: 2, md: 4 } }}>
 
-            {/* HEADER CONTROLS */}
+            {/* Steuerungszeile */}
             <Stack
               direction={{ xs: "column", md: "row" }}
               justifyContent="space-between"
@@ -183,7 +179,7 @@ export default function HeatmapPage({ onOpenFilters }) {
                 sx={{ minWidth: 260, bgcolor: "white" }}
               >
                 <MenuItem value="" disabled>
-                  <em>Select scenario</em>
+                  <em>Szenario auswählen</em>
                 </MenuItem>
                 {scenarioList.map((s) => (
                   <MenuItem key={s} value={s}>
@@ -199,8 +195,8 @@ export default function HeatmapPage({ onOpenFilters }) {
                   onChange={(e, v) => v && setMode(v)}
                   size="small"
                 >
-                  <ToggleButton value="hours">Hours</ToggleButton>
-                  <ToggleButton value="pct">% Load</ToggleButton>
+                  <ToggleButton value="hours">Stunden</ToggleButton>
+                  <ToggleButton value="pct">% Auslastung</ToggleButton>
                 </ToggleButtonGroup>
 
                 {!filters.dateStart && !filters.dateEnd && (
@@ -210,9 +206,9 @@ export default function HeatmapPage({ onOpenFilters }) {
                     onChange={(e, v) => v && setRange(v)}
                     size="small"
                   >
-                    <ToggleButton value="full">Full</ToggleButton>
-                    <ToggleButton value="7">7 Days</ToggleButton>
-                    <ToggleButton value="30">30 Days</ToggleButton>
+                    <ToggleButton value="full">Gesamt</ToggleButton>
+                    <ToggleButton value="7">7 Tage</ToggleButton>
+                    <ToggleButton value="30">30 Tage</ToggleButton>
                   </ToggleButtonGroup>
                 )}
 
@@ -230,9 +226,7 @@ export default function HeatmapPage({ onOpenFilters }) {
               </Stack>
             </Stack>
 
-            {/* =====================================================
-                HEATMAP GRID
-            ===================================================== */}
+            {/* Heatmap */}
             <Box
               sx={{
                 position: "relative",
@@ -259,7 +253,7 @@ export default function HeatmapPage({ onOpenFilters }) {
                       backgroundColor: "#e2e8f0",
                     }}
                   >
-                    {/* Header Row */}
+                    {/* Kopfzeile */}
                     <Box
                       sx={{
                         bgcolor: "white",
@@ -270,7 +264,7 @@ export default function HeatmapPage({ onOpenFilters }) {
                         zIndex: 10,
                       }}
                     >
-                      Machine
+                      Maschine
                     </Box>
 
                     {filtered.dates.map((d) => (
@@ -287,7 +281,7 @@ export default function HeatmapPage({ onOpenFilters }) {
                       </Box>
                     ))}
 
-                    {/* Rows */}
+                    {/* Jede Maschinenzeile */}
                     {filtered.machines.map((m, i) => {
                       const row = filtered.values[i];
                       const rowMax = Math.max(...row);
@@ -342,9 +336,7 @@ export default function HeatmapPage({ onOpenFilters }) {
               </Box>
             </Box>
 
-            {/* =====================================================
-                LEGEND
-            ===================================================== */}
+            {/* Legende */}
             <Stack
               direction="row"
               spacing={3}
