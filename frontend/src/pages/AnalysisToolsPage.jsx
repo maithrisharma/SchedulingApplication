@@ -21,6 +21,7 @@ import { useGlobalFilters } from "../context/GlobalFiltersContext";
 
 import GanttPage from "./GanttPage";
 import OrderRoutingPage from "./OrderRoutingPage";
+import MachineContextPage from "./MachineContextPage";
 import UtilizationPage from "./UtilizationPage";
 import IdleTimePage from "./IdleTimePage";
 import HeatmapPage from "./HeatmapPage";
@@ -256,6 +257,10 @@ export default function AnalysisToolsPage() {
           <Route
             path="order-routing"
             element={<OrderRoutingPage onOpenFilters={() => setOpenFilters(true)} />}
+          />
+          <Route
+            path="machine-context"
+            element={<MachineContextPage onOpenFilters={() => setOpenFilters(true)} />}
           />
           <Route
             path="utilization"

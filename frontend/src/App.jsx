@@ -8,6 +8,7 @@ import {
 
 import { ScenarioProvider } from "./context/ScenarioContext";
 import { GlobalFiltersProvider } from "./context/GlobalFiltersContext";
+import { SelectionProvider } from "./context/SelectionContext";
 
 /* ---------------- Main workflow pages ---------------- */
 import ScenarioListPage from "./pages/ScenarioListPage";
@@ -158,7 +159,7 @@ function AnalysisToolsSubNav() {
       tabs={[
         { label: "Plantafel", to: "/analysis/gantt" },
         { label: "Auftragsrouting", to: "/analysis/order-routing" },
-        /*{ label: "Maschinenkontext", to: "/analysis/machine-context" },*/
+        { label: "Maschinenkontext", to: "/analysis/machine-context" },
         { label: "Auslastung", to: "/analysis/utilization" },
         { label: "Leerlaufzeiten", to: "/analysis/idle-time" },
         { label: "Heatmap", to: "/analysis/heatmap" },
@@ -194,6 +195,7 @@ function ReportsSubNav() {
 export default function App() {
   return (
     <ScenarioProvider>
+        <SelectionProvider>
       <BrowserRouter>
         {/* ---------- TOP NAV (COMPACT + GERMAN) ---------- */}
         <AppBar
@@ -251,6 +253,7 @@ export default function App() {
           <Route path="/reports/delivery" element={<DeliveryReportPage />} />
         </Routes>
       </BrowserRouter>
+      </SelectionProvider>
     </ScenarioProvider>
   );
 }

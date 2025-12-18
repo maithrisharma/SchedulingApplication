@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+// src/pages/OrderRoutingPage.jsx
+import { useEffect, useState, useMemo } from "react";
 import {
   Box,
   Card,
@@ -13,12 +14,15 @@ import {
 } from "@mui/material";
 
 import { useScenario } from "../context/ScenarioContext";
+import { useSelection } from "../context/SelectionContext";
 import { apiGet } from "../api";
 import OrderRoutingChart from "../components/OrderRoutingChart";
 
 export default function OrderRoutingPage() {
-  const { scenario, setScenario, selectedOrder, setSelectedOrder } =
-    useScenario();
+  const { scenario, setScenario } = useScenario();
+  const { selection, setSelection } = useSelection();
+
+  const selectedOrder = selection?.orderNo ?? null;
 
   const [scenarioList, setScenarioList] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -27,16 +31,21 @@ export default function OrderRoutingPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  /* LOAD SCENARIOS */
+  /* -------------------------------
+     LOAD SCENARIOS
+  -------------------------------- */
   useEffect(() => {
     apiGet("/scenarios/list")
       .then((res) => setScenarioList(res.scenarios || []))
       .catch(() => setScenarioList([]));
   }, []);
 
-  /* LOAD ORDER LIST */
+  /* -------------------------------
+     LOAD ORDER LIST (once per scenario)
+  -------------------------------- */
   useEffect(() => {
     if (!scenario) return;
+
     setLoading(true);
     setErr("");
 
@@ -56,7 +65,9 @@ export default function OrderRoutingPage() {
       .finally(() => setLoading(false));
   }, [scenario]);
 
-  /* LOAD OPERATIONS FOR SELECTED ORDER */
+  /* -------------------------------
+     LOAD OPERATIONS (SINGLE SOURCE OF TRUTH)
+  -------------------------------- */
   useEffect(() => {
     if (!scenario || !selectedOrder) {
       setOperations([]);
@@ -122,8 +133,13 @@ export default function OrderRoutingPage() {
 
             <Autocomplete
               options={orders}
-              value={selectedOrder || null}
-              onChange={(e, v) => setSelectedOrder(v || "")}
+              value={selectedOrder}
+              onChange={(e, v) =>
+                setSelection((prev) => ({
+                  ...prev,
+                  orderNo: v || null,
+                }))
+              }
               sx={{ width: 300 }}
               renderInput={(params) => (
                 <TextField {...params} label="Auftrag auswählen" />

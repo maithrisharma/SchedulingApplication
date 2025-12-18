@@ -1,11 +1,7 @@
-// src/pages/GanttPage.jsx
-import { useEffect, useState, useMemo } from "react";
 import {
   Box,
   Card,
   Typography,
-  Select,
-  MenuItem,
   Button,
   Stack,
   Alert,
@@ -13,20 +9,25 @@ import {
   Switch,
   CircularProgress,
 } from "@mui/material";
+import { useSelection } from "../context/SelectionContext";
+import { useNavigate } from "react-router-dom"; // ✅ ADD
 
 import { Download, Refresh, FilterList } from "@mui/icons-material";
 import GanttChart from "../components/GanttChart";
 import { useScenario } from "../context/ScenarioContext";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
 import { apiGet } from "../api";
+import { useEffect, useState, useMemo, useCallback } from "react";
 
 const ALL_SENTINEL = "__ALL__";
 
 export default function GanttPage({ onOpenFilters }) {
-  const { scenario, setScenario, setSelectedOrder } = useScenario();
+  const { scenario, setScenario } = useScenario();
+  const { setSelection, setGanttZoom, ganttZoom } = useSelection();
+  const navigate = useNavigate(); // ✅ ADD
+
   const { filters, setMachineList } = useGlobalFilters();
 
-  const [scenarioList, setScenarioList] = useState([]);
   const [plan, setPlan] = useState([]);
   const [top10, setTop10] = useState([]);
 
@@ -45,13 +46,6 @@ export default function GanttPage({ onOpenFilters }) {
     return () => window.removeEventListener("resize", resizeHandler);
   }, []);
 
-  /* LOAD SCENARIOS */
-  useEffect(() => {
-    apiGet("/scenarios/list").then((res) =>
-      setScenarioList(res.scenarios || [])
-    );
-  }, []);
-
   /* LOAD VISUAL DATA */
   useEffect(() => {
     if (!scenario) return;
@@ -68,7 +62,8 @@ export default function GanttPage({ onOpenFilters }) {
       .catch(() => {
         setErr("Daten konnten nicht geladen werden.");
         setLoading(false);
-      }).finally(() => setLoading(false));
+      })
+      .finally(() => setLoading(false));
   }, [scenario, setMachineList]);
 
   /* FILTER LOGIC */
@@ -76,8 +71,11 @@ export default function GanttPage({ onOpenFilters }) {
     let rows = [...plan];
 
     if (filters.machines.length === 0) {
-      if (top10.length > 0)
-        rows = rows.filter((r) => top10.includes(String(r.WorkPlaceNo)));
+      if (top10.length > 0) {
+        rows = rows.filter((r) =>
+          top10.includes(String(r.WorkPlaceNo))
+        );
+      }
     } else if (
       filters.machines.length === 1 &&
       filters.machines[0] === ALL_SENTINEL
@@ -89,22 +87,29 @@ export default function GanttPage({ onOpenFilters }) {
       );
     }
 
-    if (filters.priority !== "all")
-      rows = rows.filter((r) => String(r.PriorityGroup) === filters.priority);
+    if (filters.priority !== "all") {
+      rows = rows.filter(
+        (r) => String(r.PriorityGroup) === filters.priority
+      );
+    }
 
-    if (filters.outsourcing === "outs")
+    if (filters.outsourcing === "outs") {
       rows = rows.filter(
         (r) => r.IsOutsourcing === true || r.Orderstate > 3
       );
+    }
 
-    if (filters.deadline === "late")
+    if (filters.deadline === "late") {
       rows = rows.filter(
         (r) =>
-          r.LatestStartDate && new Date(r.Start) > new Date(r.LatestStartDate)
+          r.LatestStartDate &&
+          new Date(r.Start) > new Date(r.LatestStartDate)
       );
+    }
 
-    if (filters.deadline === "hasDeadline")
+    if (filters.deadline === "hasDeadline") {
       rows = rows.filter((r) => r.LatestStartDate != null);
+    }
 
     if (filters.dateStart) {
       const d0 = new Date(filters.dateStart);
@@ -145,6 +150,13 @@ export default function GanttPage({ onOpenFilters }) {
     URL.revokeObjectURL(url);
   };
 
+  const handleZoomChange = useCallback(
+    (domain) => {
+      setGanttZoom(domain);
+    },
+    [setGanttZoom]
+  );
+
   /* RENDER */
   return (
     <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", px: 3, pt: 2 }}>
@@ -153,15 +165,12 @@ export default function GanttPage({ onOpenFilters }) {
         <Box sx={{ position: "relative", mb: 2, mt: 1 }}>
           <Typography
             variant="h4"
-            sx={{
-              fontWeight: 800,
-              textAlign: "center",
-            }}
+            sx={{ fontWeight: 800, textAlign: "center" }}
           >
             Plantafel
           </Typography>
 
-          {/* FILTER + LABELS TOGGLE (Option A: top right) */}
+          {/* FILTER + LABELS TOGGLE */}
           <Stack
             direction="row"
             spacing={1.5}
@@ -178,7 +187,9 @@ export default function GanttPage({ onOpenFilters }) {
                 <Switch
                   size="small"
                   checked={showAllLabels}
-                  onChange={(e) => setShowAllLabels(e.target.checked)}
+                  onChange={(e) =>
+                    setShowAllLabels(e.target.checked)
+                  }
                 />
               }
               label="Alle Beschriftungen"
@@ -195,10 +206,7 @@ export default function GanttPage({ onOpenFilters }) {
                 variant="text"
                 startIcon={<FilterList />}
                 onClick={onOpenFilters}
-                sx={{
-                  fontSize: 16,
-                  color: "#0f3b63",
-                }}
+                sx={{ fontSize: 16, color: "#0f3b63" }}
               >
                 Filter
               </Button>
@@ -210,7 +218,9 @@ export default function GanttPage({ onOpenFilters }) {
             sx={{ textAlign: "center", color: "#64748b", mt: 1 }}
           >
             Plan für Szenario:&nbsp;
-            <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
+            <strong style={{ color: "#3b82f6" }}>
+              {scenario || "—"}
+            </strong>
           </Typography>
         </Box>
 
@@ -232,9 +242,20 @@ export default function GanttPage({ onOpenFilters }) {
               showAllLabels={showAllLabels}
               onRefresh={() => setScenario(scenario)}
               onDownloadSvg={handleDownloadSvg}
-              onBarClick={(job) =>
-                job?.OrderNo && setSelectedOrder(String(job.OrderNo))
-              }
+              onBarClick={(job) => {
+                if (!job) return;
+
+                setSelection({
+                  orderNo: String(job.OrderNo),
+                  machine: String(job.WorkPlaceNo),
+                  jobId: job.job_id ?? null,
+                });
+
+                // ✅ NAVIGATE TO MACHINE CONTEXT
+                navigate("/analysis/machine-context");
+              }}
+              onZoomChange={handleZoomChange}
+              initialZoomDomain={ganttZoom || null}
             />
           )}
 

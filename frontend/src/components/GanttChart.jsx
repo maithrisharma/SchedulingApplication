@@ -6,11 +6,15 @@ import { scaleBand, scaleTime } from "@visx/scale";
 import { GridRows, GridColumns } from "@visx/grid";
 import { useTooltip, Tooltip } from "@visx/tooltip";
 import styles from "./GanttChart.module.css";
+import { useId } from "react";
 
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DownloadIcon from "@mui/icons-material/Download";
 
 import PartImage from "../assets/image.png";
+
+
+
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_SPAN_MS = 60 * 60 * 1000; // 1 Stunde (minimale Zoom-Spanne)
@@ -22,12 +26,19 @@ export default function GanttChart({
   onDownloadSvg,
   showAllLabels = false,
   onBarClick,
+  onZoomChange,
+  initialZoomDomain,
+  highlightOrder = null,
 }) {
+    const uid = useId();
   const containerRef = useRef(null);
   const [width, setWidth] = useState(1000);
 
   const [isPanning, setIsPanning] = useState(false);
   const lastPanXRef = useRef(null);
+  const lastZoomRef = useRef(null);
+
+  const initialZoomAppliedRef = useRef(false);
 
   const {
     tooltipData,
@@ -48,6 +59,24 @@ export default function GanttChart({
     obs.observe(containerRef.current);
     return () => obs.disconnect();
   }, []);
+/* -----------------------------
+   GLOBAL mouseup safety (fix navigation freeze)
+----------------------------- */
+useEffect(() => {
+  const handleGlobalMouseUp = () => {
+    setIsPanning(false);
+    lastPanXRef.current = null;
+  };
+
+  window.addEventListener("mouseup", handleGlobalMouseUp);
+  window.addEventListener("mouseleave", handleGlobalMouseUp);
+
+  return () => {
+    window.removeEventListener("mouseup", handleGlobalMouseUp);
+    window.removeEventListener("mouseleave", handleGlobalMouseUp);
+  };
+}, []);
+
 
   /* -----------------------------
      Parse data
@@ -89,7 +118,15 @@ export default function GanttChart({
 
   // Beim Laden: auf erste 2 Wochen zoomen (oder bis globalEnd)
   useEffect(() => {
-    if (globalStart && globalEnd) {
+    if (!globalStart || !globalEnd) return;
+    if (initialZoomAppliedRef.current) return;
+
+    if (initialZoomDomain?.start && initialZoomDomain?.end) {
+      setViewDomain({
+        start: new Date(initialZoomDomain.start),
+        end: new Date(initialZoomDomain.end),
+      });
+    } else {
       const twoWeeksMs = 14 * DAY_MS;
       const initialEndTime = Math.min(
         globalEnd.getTime(),
@@ -100,7 +137,28 @@ export default function GanttChart({
         end: new Date(initialEndTime),
       });
     }
-  }, [globalStart, globalEnd]);
+
+    initialZoomAppliedRef.current = true;
+  }, [globalStart, globalEnd, initialZoomDomain]);
+/* -----------------------------
+     Persist zoom to parent
+  ----------------------------- */
+  useEffect(() => {
+  if (!onZoomChange) return;
+
+  const prev = lastZoomRef.current;
+  const curr = viewDomain;
+
+  if (
+    !prev ||
+    prev.start.getTime() !== curr.start.getTime() ||
+    prev.end.getTime() !== curr.end.getTime()
+  ) {
+    lastZoomRef.current = curr;
+    onZoomChange(curr);
+  }
+}, [viewDomain, onZoomChange]);
+
 
   const resetToTwoWeeks = () => {
     if (!globalStart || !globalEnd) return;
@@ -314,274 +372,271 @@ export default function GanttChart({
      Render
   ----------------------------- */
   return (
-    <div
-      ref={containerRef}
-      style={{ width: "100%", overflow: "hidden" }}
-      onWheel={handleWheel}
-    >
-      <div style={{ width: "100%", height, position: "relative" }}>
-        <svg id="gantt-svg" width={width} height={height}>
-          {/* Pan layer */}
-          <rect
-            x={0}
-            y={0}
-            width={width}
-            height={height}
-            fill="transparent"
-            style={{ cursor: isPanning ? "grabbing" : "grab" }}
-            onMouseDown={startPan}
-            onMouseMove={movePan}
-            onMouseUp={endPan}
-            onMouseLeave={endPan}
+  <div
+    ref={containerRef}
+    style={{ width: "100%", overflow: "hidden" }}
+    onWheel={handleWheel}
+  >
+    <div style={{ width: "100%", height, position: "relative" }}>
+      <svg id="gantt-svg" data-uid={uid} width={width} height={height}>
+        {/* Pan layer */}
+        <rect
+          x={0}
+          y={0}
+          width={width}
+          height={height}
+          fill="transparent"
+          style={{
+            cursor: isPanning ? "grabbing" : "grab",
+            pointerEvents: "fill",
+          }}
+          onMouseDown={startPan}
+          onMouseMove={movePan}
+          onMouseUp={endPan}
+          onMouseLeave={endPan}
+        />
+
+        <defs>
+          <clipPath id={`${uid}-clip`}>
+            <rect
+              x={margin.left}
+              y={margin.top}
+              width={innerWidth}
+              height={innerHeight}
+            />
+          </clipPath>
+        </defs>
+
+        <Group clipPath={`url(#${uid}-clip)`}>
+          <GridRows
+            scale={yScale}
+            width={innerWidth}
+            left={margin.left}
+            stroke="#e0e0e0"
+          />
+          <GridColumns
+            scale={xScale}
+            height={innerHeight}
+            top={margin.top}
+            stroke="#e0e0e0"
           />
 
-          <defs>
-            <clipPath id="gantt-clip">
-              <rect
-                x={margin.left}
-                y={margin.top}
-                width={innerWidth}
-                height={innerHeight}
-              />
-            </clipPath>
-          </defs>
+          {parsed.map((job, i) => {
+            const x1 = xScale(job.Start);
+            const x2 = xScale(job.End);
+            const y = yScale(job.Machine);
+            if (!Number.isFinite(y)) return null;
 
-          <Group clipPath="url(#gantt-clip)">
-            <GridRows
-              scale={yScale}
-              width={innerWidth}
-              left={margin.left}
-              stroke="#e0e0e0"
-            />
-            <GridColumns
-              scale={xScale}
-              height={innerHeight}
-              top={margin.top}
-              stroke="#e0e0e0"
-            />
+            const barWidth = Math.max(3, x2 - x1);
+            const barHeight = yScale.bandwidth();
 
-            {parsed.map((job, i) => {
-              const x1 = xScale(job.Start);
-              const x2 = xScale(job.End);
-              const y = yScale(job.Machine);
-              if (!Number.isFinite(y)) return null;
+            const latestStart = job.LatestStartDate
+              ? new Date(job.LatestStartDate)
+              : null;
 
-              const barWidth = Math.max(3, x2 - x1);
-              const barHeight = yScale.bandwidth();
+            const isLateStart =
+              job.StartsBeforeLSD === false ||
+              (latestStart && job.Start > latestStart);
 
-              const latestStart = job.LatestStartDate
-                ? new Date(job.LatestStartDate)
-                : null;
+            let baseFill;
+            let borderColor;
 
-              const isLateStart =
-                job.StartsBeforeLSD === false ||
-                (latestStart && job.Start > latestStart);
+            if (highlightOrder) {
+                // MACHINE CONTEXT MODE
+                const isSelected = String(job.OrderNo) === String(highlightOrder);
 
-              const baseFill = isLateStart
-                ? "rgba(248,113,113,0.9)" // rot
-                : "rgba(15,59,99,0.9)"; // blau
+                baseFill = isSelected ? "rgba(248,113,113,0.95)" : "rgba(15,59,99,0.6)";
+                borderColor = isSelected ? "#b91c1c" : "#0f3b63";
+            } else {
 
-              const borderColor = isLateStart ? "#b91c1c" : "#0f3b63";
+                baseFill = isLateStart ? "rgba(248,113,113,0.9)" : "rgba(15,59,99,0.9)";
+                borderColor = isLateStart ? "#b91c1c" : "#0f3b63";
+            }
+            const iconWidth = Math.min(24, barWidth - 4);
+            const pictogramVisible =
+              showPictogram && barWidth > 50 && iconWidth > 0;
 
-              const iconWidth = Math.min(24, barWidth - 4);
-              const pictogramVisible =
-                showPictogram && barWidth > 50 && iconWidth > 0;
+            const showOrderLabel =
+              job.OrderNo && barWidth > ORDER_LABEL_MIN_WIDTH;
 
-              const showOrderLabel =
-                job.OrderNo && barWidth > ORDER_LABEL_MIN_WIDTH;
+            const iconClipId = `${uid}-icon-clip-${i}`;
 
-              const iconClipId = `icon-clip-${i}`;
+            return (
+              <g key={i}>
+                {/* ClipPath für das Bild links */}
+                {pictogramVisible && (
+                  <clipPath id={iconClipId}>
+                    <rect
+                      x={x1}
+                      y={y}
+                      width={iconWidth}
+                      height={barHeight}
+                      rx={6}
+                    />
+                  </clipPath>
+                )}
 
-              return (
-                <g key={i}>
-                  {/* ClipPath für das Bild links */}
-                  {pictogramVisible && (
-                    <clipPath id={iconClipId}>
-                      <rect
-                        x={x1}
-                        y={y}
-                        width={iconWidth}
-                        height={barHeight}
-                        rx={6}
-                      />
-                    </clipPath>
-                  )}
-
-                  {/* Grundbalken */}
-                  <rect
-                    x={x1}
-                    y={y}
-                    width={barWidth}
-                    height={barHeight}
-                    rx={6}
-                    fill={baseFill}
-                    stroke={borderColor}
-                    strokeWidth={1.1}
-                    onMouseEnter={() =>
-                      showTooltip({
-                        tooltipData: job,
-                        tooltipLeft: x1 + barWidth / 2,
-                        tooltipTop: y - 10,
-                      })
+                {/* Grundbalken */}
+                <rect x={x1} y={y} width={barWidth} height={barHeight} rx={6} fill={baseFill} stroke={borderColor} strokeWidth={1.1} onMouseDown={(e) => e.stopPropagation()}   onMouseEnter={() =>
+                    showTooltip({
+                    tooltipData: job,
+                    tooltipLeft: x1 + barWidth / 2,
+                    tooltipTop: y - 10,
+                    })
                     }
                     onMouseLeave={hideTooltip}
                     onClick={() => onBarClick && onBarClick(job)}
                     style={{ cursor: "pointer" }}
-                  />
+                />
 
-                  {/* Bild links + Ordernummer (nur bei Wochen-Zoom) */}
-                  {pictogramVisible && (
-                    <>
-                      <image
-                        href={PartImage}
-                        x={x1}
-                        y={y}
-                        width={iconWidth}
-                        height={barHeight}
-                        preserveAspectRatio="xMidYMid slice"
-                        clipPath={`url(#${iconClipId})`}
-                      />
-                      {showOrderLabel && (
-                        <text
-                          x={x1 + iconWidth + 4}
-                          y={y + barHeight / 2 + 4}
-                          fill="#ffffff"
-                          fontSize={11}
-                          fontWeight={600}
-                        >
-                          {String(job.OrderNo)}
-                        </text>
-                      )}
-                    </>
-                  )}
 
-                  {/* Wenn kein Bild gezeigt wird: OrderNo direkt im Balken links */}
-                  {!pictogramVisible && showOrderLabel && (
-                    <text
-                      x={x1 + 4}
-                      y={y + barHeight / 2 + 4}
-                      fill="#ffffff"
-                      fontSize={11}
-                      fontWeight={600}
-                    >
-                      {String(job.OrderNo)}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-          </Group>
+                {/* Bild links + Ordernummer (nur bei Wochen-Zoom) */}
+                {pictogramVisible && (
+                  <>
+                    <image
+                      href={PartImage}
+                      x={x1}
+                      y={y}
+                      width={iconWidth}
+                      height={barHeight}
+                      preserveAspectRatio="xMidYMid slice"
+                      clipPath={`url(#${iconClipId})`}
+                    />
+                    {showOrderLabel && (
+                      <text
+                        x={x1 + iconWidth + 4}
+                        y={y + barHeight / 2 + 4}
+                        fill="#ffffff"
+                        fontSize={11}
+                        fontWeight={600}
+                        pointerEvents="none"
+                      >
+                        {String(job.OrderNo)}
+                      </text>
+                    )}
+                  </>
+                )}
 
-          <AxisLeft
-            left={margin.left}
-            scale={yScale}
-            tickValues={visibleYTicks}
-            tickLabelProps={() => ({
-              fontSize: 13,
-              textAnchor: "end",
-              dy: "0.33em",
-              fontWeight: 500,
-            })}
-          />
+                {/* Wenn kein Bild gezeigt wird: OrderNo direkt im Balken links */}
+                {!pictogramVisible && showOrderLabel && (
+                  <text
+                    x={x1 + 4}
+                    y={y + barHeight / 2 + 4}
+                    fill="#ffffff"
+                    fontSize={11}
+                    fontWeight={600}
+                    pointerEvents="none"
+                  >
+                    {String(job.OrderNo)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </Group>
 
-          <AxisBottom
-            top={height - margin.bottom}
-            scale={xScale}
-            numTicks={numTicks}
-            tickFormat={formatTick}
-          />
-        </svg>
+        <AxisLeft
+          left={margin.left}
+          scale={yScale}
+          tickValues={visibleYTicks}
+          tickLabelProps={() => ({
+            fontSize: 13,
+            textAnchor: "end",
+            dy: "0.33em",
+            fontWeight: 500,
+          })}
+        />
 
-        {/* TOOLBAR */}
-        <div className={styles.zoomControls}>
-          {/* Start: zurück auf 2 Wochen */}
-          <button onClick={resetToTwoWeeks} title="Zurück auf 2 Wochen">
-            Start
-          </button>
+        <AxisBottom
+          top={height - margin.bottom}
+          scale={xScale}
+          numTicks={numTicks}
+          tickFormat={formatTick}
+        />
+      </svg>
 
-          {/* Kontinuierlich hinein- und hinauszoomen */}
-          <button onClick={() => zoomBy(1.2)} title="Hineinzoomen">
-            +
-          </button>
-          <button onClick={() => zoomBy(1 / 1.2)} title="Herauszoomen">
-            -
-          </button>
+      {/* TOOLBAR */}
+      <div className={styles.zoomControls}>
+        <button onClick={resetToTwoWeeks} title="Zurück auf 2 Wochen">
+          Start
+        </button>
 
-          {/* Volle Plantafel anzeigen */}
-          <button onClick={showFullTimeline} title="Gesamte Plantafel">
-            Full
-          </button>
+        <button onClick={() => zoomBy(1.2)} title="Hineinzoomen">
+          +
+        </button>
+        <button onClick={() => zoomBy(1 / 1.2)} title="Herauszoomen">
+          -
+        </button>
 
-          <button onClick={onRefresh} title="Aktualisieren">
-            <RefreshIcon fontSize="small" />
-          </button>
+        <button onClick={showFullTimeline} title="Gesamte Plantafel">
+          Full
+        </button>
 
-          <button onClick={onDownloadSvg} title="SVG herunterladen">
-            <DownloadIcon fontSize="small" />
-          </button>
-        </div>
+        <button onClick={onRefresh} title="Aktualisieren">
+          <RefreshIcon fontSize="small" />
+        </button>
 
-        {/* Tooltip (Deutsch) */}
-        {tooltipData && (
-          <Tooltip left={tooltipLeft} top={tooltipTop}>
-            <div>
-              <strong>Job-ID:</strong> {tooltipData.job_id}
-            </div>
-            <div>
-              <strong>Auftrag:</strong> {tooltipData.OrderNo} /{" "}
-              {tooltipData.OpNo}
-            </div>
-            <div>
-              <strong>Arbeitsplatz:</strong> {tooltipData.Machine}
-            </div>
-            <div>
-              <strong>Start:</strong>{" "}
-              {tooltipData.Start.toLocaleString("de-DE")}
-            </div>
-            <div>
-              <strong>Ende:</strong>{" "}
-              {tooltipData.End.toLocaleString("de-DE")}
-            </div>
-
-            {tooltipData.LatestStartDate && (
-              <div>
-                <strong>Spätester Start:</strong>{" "}
-                {new Date(
-                  tooltipData.LatestStartDate
-                ).toLocaleString("de-DE")}
-              </div>
-            )}
-
-            <div>
-              <strong>Dauer:</strong>{" "}
-              {Math.round((tooltipData.End - tooltipData.Start) / 60000)} Min
-            </div>
-
-            {tooltipData.Buffer && (
-              <div>
-                <strong>Puffer:</strong> {tooltipData.Buffer} Min
-              </div>
-            )}
-
-            <div>
-              <strong>Prioritätsgruppe:</strong>{" "}
-              {tooltipData.PriorityGroup}
-            </div>
-
-            {tooltipData.Reason && (
-              <div style={{ maxWidth: 240 }}>
-                <strong>Grund:</strong> {tooltipData.Reason}
-              </div>
-            )}
-
-            {tooltipData.IsOutsourcing && (
-              <div>
-                <strong>Fremdvergabe:</strong> Ja
-              </div>
-            )}
-          </Tooltip>
-        )}
+        <button onClick={onDownloadSvg} title="SVG herunterladen">
+          <DownloadIcon fontSize="small" />
+        </button>
       </div>
+
+      {/* Tooltip (Deutsch) — FULL (keine Felder entfernt) */}
+      {tooltipData && (
+        <Tooltip left={tooltipLeft} top={tooltipTop}>
+          <div>
+            <strong>Job-ID:</strong> {tooltipData.job_id}
+          </div>
+          <div>
+            <strong>Auftrag:</strong> {tooltipData.OrderNo} / {tooltipData.OpNo}
+          </div>
+          <div>
+            <strong>Arbeitsplatz:</strong> {tooltipData.Machine}
+          </div>
+          <div>
+            <strong>Start:</strong> {tooltipData.Start.toLocaleString("de-DE")}
+          </div>
+          <div>
+            <strong>Ende:</strong> {tooltipData.End.toLocaleString("de-DE")}
+          </div>
+
+          {tooltipData.LatestStartDate && (
+            <div>
+              <strong>Spätester Start:</strong>{" "}
+              {new Date(tooltipData.LatestStartDate).toLocaleString("de-DE")}
+            </div>
+          )}
+
+          <div>
+            <strong>Dauer:</strong>{" "}
+            {Math.round((tooltipData.End - tooltipData.Start) / 60000)} Min
+          </div>
+
+          {tooltipData.Buffer && (
+            <div>
+              <strong>Puffer:</strong> {tooltipData.Buffer} Min
+            </div>
+          )}
+
+          <div>
+            <strong>Prioritätsgruppe:</strong> {tooltipData.PriorityGroup}
+          </div>
+
+          {tooltipData.Reason && (
+            <div style={{ maxWidth: 240 }}>
+              <strong>Grund:</strong> {tooltipData.Reason}
+            </div>
+          )}
+
+          {tooltipData.IsOutsourcing && (
+            <div>
+              <strong>Fremdvergabe:</strong> Ja
+            </div>
+          )}
+        </Tooltip>
+      )}
     </div>
-  );
+  </div>
+);
+
 }

@@ -112,6 +112,27 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
     # indegree init
     indeg = {jid: len(pred_sets.get(jid, set())) for jid in jobdict.keys()}
+    # ---------- OS5 upstream lock (fixes greedy cursor runaway) ----------
+    # If a job is a predecessor of an OS=5 job, then when that predecessor becomes READY,
+    # we lock the OS5 machine to stop it being filled ahead before OS5 unlocks.
+    os5_lock_wp = set()  # wpU that should not be greedily filled
+    os5_pred_to_wp = {}  # pred_jid -> set(wpU of dependent OS5 jobs)
+
+    for os5_jid, r in jobdict.items():
+        if to_int(r.get("Orderstate"), 0) != 5:
+            continue
+        wp_os5 = str(r.get("WorkPlaceNo", "")).strip().upper()
+        if not wp_os5 or wp_os5 == "TBA":
+            continue
+        for p in pred_sets.get(os5_jid, set()):
+            os5_pred_to_wp.setdefault(p, set()).add(wp_os5)
+
+            # ----------------------------------
+            # --- OS5-UPSTREAM PRIORITY BOOST ---
+        OS5_UPSTREAM_BOOST = 5e11  # big, but still less than OS5 absolute priority (-1e12)
+        os5_upstream_jobs = set(os5_pred_to_wp.keys())
+
+    # ---------------------------------------------------
 
     plan_rows, late_rows = [], []
     end_times, placed = {}, set()
@@ -268,7 +289,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
         for j in range(idx, len(wdf)):
             cursor = wdf.at[j, "cursor"]
             win_end = wdf.at[j, "end"]
-            if est <= cursor + GAP_TOL and cursor + GAP_TOL <= win_end:
+            if max(cursor, est) + GAP_TOL <= win_end:
                 return True
         return False
 
@@ -283,7 +304,11 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
             score = heap_key(r, est, is_continuation(jid, r), weights)
             if is_upstream_pending(jid):
                 score -= UPSTREAM_EPS
+            if jid in os5_upstream_jobs:
+                score -= OS5_UPSTREAM_BOOST
             heapq.heappush(ready_heap, (score, jid))
+            for wp_lock in os5_pred_to_wp.get(jid, ()):
+                os5_lock_wp.add(wp_lock)
 
 
     LOOKAHEAD = 20
@@ -445,7 +470,15 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                     continue
                 cursor = wdf.at[idx, "cursor"]
                 window_end = wdf.at[idx, "end"]
-                if cursor + GAP_TOL <= window_end and earliest_try <= cursor + GAP_TOL:
+                # --- OS5-UPSTREAM LOCK GUARD ---
+                # If this machine is locked because an upstream of an OS5 is READY,
+                # do not greedily fill it with non-OS5 jobs.
+                if wpU in os5_lock_wp and to_int(row_try.get("Orderstate"), 0) != 5:
+                    # allow PG=2 to run if it finishes before OS5 earliest start
+                    if to_int(row_try.get("PriorityGroup"), 2) != 2:
+                        continue
+
+                if max(cursor, earliest_try) + GAP_TOL <= window_end:
                     picked_tuple = (score, cand)
                     picked = picked_tuple[1]
 
@@ -677,6 +710,9 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
         placed.add(picked)
         end_times[picked] = end
         machine_last_job[wpU] = picked
+        if to_int(r.get("Orderstate"), 0) == 5:
+            os5_lock_wp.discard(wpU)  # release protection once OS5 ran
+
 
         # release successors
         for succ in succ_multi.get(picked, set()):
@@ -691,7 +727,14 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                 score = heap_key(row_s, est, is_continuation(succ, row_s), weights)
                 if is_upstream_pending(succ):
                     score -= UPSTREAM_EPS
+                if succ in os5_upstream_jobs:
+                    score -= OS5_UPSTREAM_BOOST
+
                 heapq.heappush(ready_heap, (score, succ))
+
+                # --- NEW FIX: lock OS5 machine as soon as upstream becomes READY ---
+                for wp_lock in os5_pred_to_wp.get(succ, ()):
+                    os5_lock_wp.add(wp_lock)
 
 
     plan_df = pd.DataFrame(plan_rows).sort_values(["WorkPlaceNo", "Start"]).reset_index(drop=True)
