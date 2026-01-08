@@ -1,3 +1,4 @@
+import json
 import uuid
 import shutil
 from flask import Blueprint, jsonify, request
@@ -34,7 +35,18 @@ def create_scenario_folder(base_path: Path, scenario_name: str = None):
     output_dir.mkdir(parents=True, exist_ok=False)
 
     # empty config
-    (scenario_dir / "config.json").write_text("{}", encoding="utf-8")
+    default_config = {
+        "mode": "real_time",
+        "now": None,
+        "freeze_horizon_hours": 0,
+        "policy_version": "v1",
+        "notes": ""
+    }
+
+    (scenario_dir / "config.json").write_text(
+        json.dumps(default_config, indent=2),
+        encoding="utf-8"
+    )
 
     return scenario_name, scenario_dir
 
@@ -111,3 +123,24 @@ def delete_scenario():
 
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@scenarios_bp.get("/<scenario>/config")
+def get_scenario_config(scenario):
+    cfg_path = Path("scenarios") / scenario / "config.json"
+
+    if not cfg_path.exists():
+        return jsonify({"ok": False, "error": "config.json not found"}), 404
+
+    return jsonify({
+        "ok": True,
+        "scenario": scenario,
+        "config": json.loads(cfg_path.read_text(encoding="utf-8"))
+    })
+
+@scenarios_bp.get("/<scenario>/run-meta")
+def get_run_meta(scenario):
+    p = Path("scenarios") / scenario / "output" / "run_meta.json"
+    if not p.exists():
+        return jsonify({"ok": False, "error": "run_meta.json not found"}), 404
+    return jsonify({"ok": True, "meta": json.loads(p.read_text(encoding="utf-8"))})

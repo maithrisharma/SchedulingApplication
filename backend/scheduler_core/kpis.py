@@ -1,6 +1,6 @@
 from typing import Dict
 import pandas as pd
-from .config import SCHEDULE_RT, INDUSTRIAL_FACTOR, INCLUDE_NON_EFFECTIVE_IN_ONTIME, NOW
+from .config import SCHEDULE_RT, INDUSTRIAL_FACTOR, INCLUDE_NON_EFFECTIVE_IN_ONTIME
 from .windows import build_windows
 
 def compute_kpis_multi(plan_df: pd.DataFrame):
@@ -33,12 +33,14 @@ def compute_kpis_multi(plan_df: pd.DataFrame):
     # Effective part: compare to LSD + d
     eff_starts = starts[eff_mask]
     eff_deadlines = deadlines[eff_mask]
+    eff_deadlines = pd.to_datetime(eff_deadlines, errors="coerce")
 
     for d in range(0, 8):
         count_on_time = 0
 
         # Effective rows contribution
         if not eff_starts.empty:
+
             allowed = eff_deadlines + pd.to_timedelta(d, unit="D")
             count_on_time += int((eff_starts <= allowed).sum())
 
@@ -116,7 +118,7 @@ def _overlap_minutes(a0, a1, b0, b1):
         return 0
     return int((e - s).total_seconds() // 60)
 
-def sum_delay_in_shift_minutes(plan_df: pd.DataFrame, shifts_df: pd.DataFrame):
+def sum_delay_in_shift_minutes(plan_df: pd.DataFrame, shifts_df: pd.DataFrame, now_ts):
     """
     Sum over all machines:
       For each idle gap between consecutive planned ops on a machine,
@@ -128,7 +130,7 @@ def sum_delay_in_shift_minutes(plan_df: pd.DataFrame, shifts_df: pd.DataFrame):
         return 0, 0
 
     # Build shift windows per machine (same source used by scheduler)
-    windows_by_wp, _, _ = build_windows(shifts_df)
+    windows_by_wp, _, _ = build_windows(shifts_df, now_ts)
 
     # Ensure plan sorted by machine/time
     df = plan_df.copy()
@@ -170,7 +172,7 @@ def sum_delay_in_shift_minutes(plan_df: pd.DataFrame, shifts_df: pd.DataFrame):
     return total_real, total_ind
 
 #KPI function
-def compute_scheduler_kpis(plan_df: pd.DataFrame, jobs_df: pd.DataFrame) -> Dict[str, float]:
+def compute_scheduler_kpis(plan_df: pd.DataFrame, jobs_df: pd.DataFrame, now_ts) -> Dict[str, float]:
     """
     Returns dict for summary.txt: On-time (fixable), Late jobs completed, % saved
     """
@@ -181,11 +183,11 @@ def compute_scheduler_kpis(plan_df: pd.DataFrame, jobs_df: pd.DataFrame) -> Dict
     total_sched = len(sched_jobs)
 
     # 2. Planned-late (LSD < NOW)
-    planned_late = sched_jobs[sched_jobs["effective_deadline"] < NOW]
+    planned_late = sched_jobs[sched_jobs["effective_deadline"] < now_ts]
     n_planned_late = len(planned_late)
 
     # 3. Fixable (can still be on-time)
-    fixable = sched_jobs[sched_jobs["effective_deadline"] >= NOW]
+    fixable = sched_jobs[sched_jobs["effective_deadline"] >= now_ts]
     n_fixable = len(fixable)
 
     # 4. On-time among fixable

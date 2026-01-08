@@ -1,8 +1,9 @@
 import pandas as pd
-from .config import NOW
+
 from .io import normalize_wp
 
-def clamp_windows_to_now(shifts, now_ts=NOW):
+
+def clamp_windows_to_now(shifts, now_ts):
     s = shifts.loc[~(shifts["end"] <= now_ts)].copy()
     overlap = (s["start"] < now_ts) & (s["end"] > now_ts)
     s.loc[overlap, "start"] = now_ts
@@ -25,8 +26,10 @@ def merge_overlaps_per_machine(shifts_df):
         out.append((cur_wp, cur_s, cur_e))
     return pd.DataFrame(out, columns=["WorkPlaceNo","start","end"])
 
-def build_windows(shifts):
+def build_windows(shifts, now_ts):
     #hard normalize machine codes here
+    now_ts = pd.Timestamp(now_ts).floor("min")
+
     sh = shifts.copy()
     sh["WorkPlaceNo"] = (
         sh["WorkPlaceNo"].astype(str)
@@ -36,7 +39,7 @@ def build_windows(shifts):
         .str.upper()
     )
 
-    sh = clamp_windows_to_now(sh)
+    sh = clamp_windows_to_now(sh, now_ts)
     sh = merge_overlaps_per_machine(sh)
     sh["cursor"] = sh["start"]
     sh = sh.sort_values(["WorkPlaceNo","start"]).reset_index(drop=True)
@@ -45,7 +48,7 @@ def build_windows(shifts):
     sh = sh.loc[sh["end"] > sh["start"]].copy()
 
     by_wp = {wp: g.reset_index(drop=True) for wp, g in sh.groupby("WorkPlaceNo")}
-    earliest = sh["start"].min() if len(sh) else NOW
+    earliest = sh["start"].min() if len(sh) else now_ts
     first_start_by_wp = sh.groupby("WorkPlaceNo")["start"].min()
 
     return by_wp, earliest, first_start_by_wp

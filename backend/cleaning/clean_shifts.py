@@ -191,7 +191,7 @@ def clean_shifts(input_file_path: str,
     if shifts_clean["start"].notna().any():
         earliest_shift_start = shifts_clean["start"].min().normalize()
     else:
-        earliest_shift_start = pd.Timestamp("2025-08-31")
+        earliest_shift_start = pd.Timestamp("2026-01-01")
 
     candidates_max = []
 

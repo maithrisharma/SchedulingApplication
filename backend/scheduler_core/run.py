@@ -1,6 +1,9 @@
 import math
 import random
 from pathlib import Path
+import json
+from datetime import datetime
+import shutil
 
 import pandas as pd  # helpful for debugging
 
@@ -21,11 +24,16 @@ from .scheduler import schedule
 from .orders import make_orders_delivery_csv
 from .kpis import compute_kpis_multi, add_idle_time_columns
 from .report import write_summary
+from .scenario_config import load_scenario_config, scenario_now
+
 
 # Cancel / state flags (module at backend/scheduler_state.py)
 from scheduler_state import cancel_flag, active_jobs
 
-
+def _iso(ts):
+    if ts is None:
+        return None
+    return pd.Timestamp(ts).strftime("%Y-%m-%dT%H:%M:%S")
 
 # JITTER WEIGHTS (Simulated Annealing)
 def jitter_weights(weights, scale: float):
@@ -49,7 +57,7 @@ def jitter_weights(weights, scale: float):
 
 
 # RUN ONCE
-def run_once(jobs, shifts, unlimited, outsourcing, weights, scenario_name=None):
+def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check=None, locked_ops=None,freeze_until=None, freeze_pg2=False):
     """
     Run one scheduling pass.
     Returns: plan, late, unplaced, score
@@ -64,6 +72,7 @@ def run_once(jobs, shifts, unlimited, outsourcing, weights, scenario_name=None):
 
     pred_sets, succ_multi = build_dependency_graph(jobs)
 
+
     # IMPORTANT: pass scenario_name into scheduler so it can read cancel_flag
     plan, late, unplaced = schedule(
         base,
@@ -73,12 +82,17 @@ def run_once(jobs, shifts, unlimited, outsourcing, weights, scenario_name=None):
         unlimited,
         outsourcing,
         weights,
-        scenario_name=scenario_name,
+        now_ts=now_ts,
+        cancel_check=cancel_check,
+        locked_ops=locked_ops,
+        freeze_until=freeze_until,
+        freeze_pg2=freeze_pg2,
     )
 
     # If scheduler was cancelled deep inside and signalled by returning None
     if plan is None or late is None or unplaced is None:
-        print(f"[RUN_ONCE] schedule() returned None for scenario {scenario_name} → treat as CANCEL")
+        print("[RUN_ONCE] schedule() returned None → treat as CANCEL")
+
         return None, None, None, None
 
     if not plan.empty:
@@ -109,6 +123,112 @@ def run_scheduler_with_paths(
     weights=None,
     progress_callback=None,
 ):
+    cfg = load_scenario_config(scenario_name) if scenario_name else {"mode": "real_time"}
+    now_ts = scenario_now(cfg) if scenario_name else pd.Timestamp.now().floor("min")
+    freeze_pg2 = bool(cfg.get("freeze_pg2", False))
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    runs_dir = Path("scenarios") / str(scenario_name) / "runs" / run_id
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    run_output_dir = runs_dir
+    latest_dir = Path(output_dir)
+    latest_dir.mkdir(parents=True, exist_ok=True)
+
+
+    run_meta = {
+        "scenario": scenario_name,
+        "run_ts": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "mode": cfg.get("mode", "real_time"),
+        "now_used": _iso(now_ts),
+        "policy_version": cfg.get("policy_version", "unknown"),
+        "freeze_horizon_hours": cfg.get("freeze_horizon_hours", 0),
+        "freeze_pg2": bool(cfg.get("freeze_pg2", False)),
+        "notes": cfg.get("notes", ""),
+    }
+
+    freeze_h = int(cfg.get("freeze_horizon_hours", 0) or 0)
+    latest_plan_path = latest_dir / "plan.csv"
+    latest_meta_path = latest_dir / "run_meta.json"
+
+    freeze_anchor = None
+    freeze_until = None
+    locked_ops = pd.DataFrame()
+
+    # Try to reuse previous anchored window if still active
+    if freeze_h > 0 and latest_meta_path.exists():
+        try:
+            prev_meta = json.loads(latest_meta_path.read_text(encoding="utf-8"))
+            prev_anchor = prev_meta.get("freeze_anchor")
+            prev_until = prev_meta.get("freeze_until")
+
+            if prev_anchor and prev_until:
+                prev_anchor_ts = pd.Timestamp(prev_anchor)
+                prev_until_ts = pd.Timestamp(prev_until)
+
+                if prev_until_ts > now_ts:
+                    freeze_anchor = prev_anchor_ts
+                    freeze_until = prev_until_ts
+                    print(f"[FREEZE] Reusing anchored window: {freeze_anchor} → {freeze_until}")
+        except Exception as e:
+            print(f"[FREEZE] Could not read previous run_meta.json: {e}")
+
+    # If not reused, start a new anchored window (when enabled)
+    if freeze_h > 0 and freeze_until is None:
+        freeze_anchor = now_ts
+        freeze_until = now_ts + pd.Timedelta(hours=freeze_h)
+        print(f"[FREEZE] New anchored window: {freeze_anchor} → {freeze_until}")
+
+    # Extract locked ops from latest released plan within [now_ts, freeze_until)
+    if freeze_h > 0 and freeze_until is not None and latest_plan_path.exists():
+        prev_plan = pd.read_csv(latest_plan_path)
+        prev_plan["Start"] = pd.to_datetime(prev_plan["Start"], errors="coerce")
+        prev_plan["End"] = pd.to_datetime(prev_plan["End"], errors="coerce")
+
+        locked_ops = prev_plan[
+            prev_plan["Start"].notna() & prev_plan["End"].notna() &
+            (prev_plan["Start"] <= freeze_until) &
+            (prev_plan["End"] >= freeze_anchor)
+            ].copy()
+        # Freeze policy: always freeze PG0/1; PG2 optional (configurable)
+        freeze_pg2 = bool(cfg.get("freeze_pg2", False))
+
+        if "PriorityGroup" in locked_ops.columns:
+            locked_ops["PriorityGroup"] = pd.to_numeric(locked_ops["PriorityGroup"], errors="coerce").fillna(2).astype(
+                int)
+
+            if freeze_pg2:
+                locked_ops = locked_ops[locked_ops["PriorityGroup"].isin([0, 1, 2])].copy()
+            else:
+                locked_ops = locked_ops[locked_ops["PriorityGroup"].isin([0, 1])].copy()
+        else:
+            # If PriorityGroup is missing in plan.csv, safest fallback is: freeze everything (or only freeze nothing).
+            # I recommend freezing everything to avoid breaking production stability accidentally.
+            if not freeze_pg2:
+                print("[FREEZE] WARNING: plan.csv has no PriorityGroup; cannot exclude PG2. Freezing all locked ops.")
+
+    print(f"[FREEZE] freeze_h={freeze_h}, locked_ops_count={len(locked_ops)}")
+    # Enforce freeze ONLY if we actually have locked ops from a previous released plan.
+    # On the first ever run, locked_ops is empty → do NOT shift everything to freeze_until.
+    freeze_enforce_until = (
+        freeze_until
+        if (freeze_h > 0 and locked_ops is not None and len(locked_ops) > 0)
+        else None
+    )
+
+    print(f"[FREEZE] freeze_enforce_until={_iso(freeze_enforce_until)}")
+
+    run_meta["freeze_anchor"] = _iso(freeze_anchor) if freeze_anchor is not None else None
+    run_meta["freeze_until"] = _iso(freeze_until) if freeze_until is not None else None
+    run_meta["freeze_source"] = "output/plan.csv" if freeze_h > 0 else None
+    run_meta["locked_ops_count"] = int(len(locked_ops)) if freeze_h > 0 else 0
+    # write archived meta for this run (always)
+    (run_output_dir / "run_meta.json").write_text(
+        json.dumps(run_meta, indent=2),
+        encoding="utf-8"
+    )
+    print(f"[WRITE] run_meta.json → {run_output_dir / 'run_meta.json'} (archived)")
+
+    def cancel_check():
+        return bool(scenario_name and cancel_flag.get(scenario_name, False))
 
     print(f"\n===== [ENGINE] Starting scheduler for scenario: {scenario_name} =====")
 
@@ -129,6 +249,10 @@ def run_scheduler_with_paths(
             print(f"[ENGINE] cancel_flag[{scenario_name}] set to False after cancel")
         return {"cancelled": True}
 
+
+
+
+
     update(0)
 
     # INITIAL CANCEL CHECK
@@ -147,7 +271,7 @@ def run_scheduler_with_paths(
         pre_orders_late,
         eligible_ops,
     ) = load_cleaned_inputs(
-        jobs_clean_path, shifts_clean_path, unlimited_path, outsourcing_path
+        jobs_clean_path, shifts_clean_path, unlimited_path, outsourcing_path, now_ts
     )
 
     print(f"[ENGINE] Loaded inputs: {len(jobs)} jobs, {len(shifts)} shifts")
@@ -165,7 +289,7 @@ def run_scheduler_with_paths(
     print(f"[ENGINE] Initial weights: {base_weights}")
 
     plan, late, unplaced, score = run_once(
-        jobs, shifts, unlimited, outsourcing, base_weights, scenario_name=scenario_name
+        jobs, shifts, unlimited, outsourcing, base_weights, now_ts=now_ts, cancel_check=cancel_check, locked_ops=locked_ops, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,
     )
 
     # If cancelled during first run
@@ -205,7 +329,9 @@ def run_scheduler_with_paths(
 
             cand_w = jitter_weights(cur_w, SA_STEP_SCALE)
             plan, late, unplaced, sc = run_once(
-                jobs, shifts, unlimited, outsourcing, cand_w, scenario_name=scenario_name
+                jobs, shifts, unlimited, outsourcing, cand_w,
+                now_ts=now_ts,
+                cancel_check=cancel_check, locked_ops=locked_ops, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,
             )
 
             # If cancelled inside this run
@@ -250,18 +376,22 @@ def run_scheduler_with_paths(
         print("[ENGINE] Cancel detected before writing files")
         return early_cancel()
 
+    run_meta["plan_score"] = float(best_score) if best_score is not None else None
+    (run_output_dir / "run_meta.json").write_text(
+        json.dumps(run_meta, indent=2),
+        encoding="utf-8"
+    )
 
     # WRITE OUTPUT FILES
     print("[ENGINE] Writing output files...")
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
-    plan_path = output_dir / "plan.csv"
-    late_path = output_dir / "late.csv"
-    unplaced_path = output_dir / "unplaced.csv"
-    orders_path = output_dir / "orders_delivery.csv"
-    summary_csv_path = output_dir / "summaryFile.csv"
+
+    plan_path = run_output_dir / "plan.csv"
+    late_path = run_output_dir / "late.csv"
+    unplaced_path = run_output_dir / "unplaced.csv"
+    orders_path = run_output_dir / "orders_delivery.csv"
+    summary_csv_path = run_output_dir / "summaryFile.csv"
 
     best_plan.to_csv(plan_path, index=False, date_format="%Y-%m-%d %H:%M:%S")
     best_late.to_csv(late_path, index=False, date_format="%Y-%m-%d %H:%M:%S")
@@ -282,11 +412,51 @@ def run_scheduler_with_paths(
         best_unplaced,
         summary_csv_path,
         orders_path,
+        now_ts=now_ts,
         eligible_ops=eligible_ops,
         pre_ops_late=pre_ops_late,
         pre_orders_late=pre_orders_late,
     )
     print(f"[WRITE] summaryFile.csv → {summary_csv_path}")
+    # ---- PUBLISH GATE: only overwrite output/ if this run beats currently released plan_score ----
+    publish = False
+    prev_score = None
+
+    if not latest_plan_path.exists() or not latest_meta_path.exists():
+        # First ever publish
+        publish = True
+        print("[PUBLISH] No existing output plan/meta → publishing this run.")
+    else:
+        try:
+            prev_meta = json.loads(latest_meta_path.read_text(encoding="utf-8"))
+            prev_score = prev_meta.get("plan_score", None)
+        except Exception as e:
+            print(f"[PUBLISH] Could not read previous output run_meta.json: {e}")
+            prev_score = None
+
+        # If previous score missing, you can either recompute or just publish.
+        # Safer for release: do NOT publish unless we can compare.
+        if prev_score is None:
+            print("[PUBLISH] Previous plan_score missing → NOT publishing (no safe comparison).")
+            publish = False
+        else:
+            publish = (best_score is not None and float(best_score) > float(prev_score))
+            print(f"[PUBLISH] Compare scores: new={best_score:.6f} vs old={prev_score:.6f} → publish={publish}")
+
+    if publish:
+        # write the released meta (now it matches released plan)
+        (latest_dir / "run_meta.json").write_text(
+            json.dumps(run_meta, indent=2),
+            encoding="utf-8"
+        )
+
+        for fn in ["plan.csv", "late.csv", "unplaced.csv", "orders_delivery.csv", "summaryFile.csv", "run_meta.json"]:
+            shutil.copy2(run_output_dir / fn, latest_dir / fn)
+
+        print(f"[PUBLISH] output/ updated → {latest_dir}")
+    else:
+        print("[PUBLISH] output/ NOT updated; kept previous released plan.")
+    # -------------------------------------------------------------------------------
 
     update(100)
 
@@ -299,6 +469,8 @@ def run_scheduler_with_paths(
     print(f"===== [ENGINE] Finished scheduler for {scenario_name} =====\n")
 
     return {
+        "run_id": run_id,
+        "run_dir": str(run_output_dir),
         "plan": str(plan_path),
         "late": str(late_path),
         "unplaced": str(unplaced_path),

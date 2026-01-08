@@ -1,3 +1,5 @@
+import traceback
+
 from flask import Blueprint, jsonify
 from pathlib import Path
 from threading import Thread
@@ -45,6 +47,7 @@ def run_scheduler_background(scenario, required_files, output_dir):
 
     except Exception as e:
         print(f"[ERROR] Scheduler crashed for {scenario}: {e}")
+        print(traceback.format_exc())
         progress[scenario] = -1  # mark as crashed
 
     finally:

@@ -2,7 +2,7 @@ import pandas as pd
 from .config import (
     SCHEDULE_RT,
     ORDER_RT,
-    NOW,
+
 )
 import re
 
@@ -24,11 +24,12 @@ def normalize_wp(s):
     )
 
 
-def load_cleaned_inputs(jobs_path, shifts_path, unlimited_path, outsourcing_path):
+def load_cleaned_inputs(jobs_path, shifts_path, unlimited_path, outsourcing_path, now_ts):
 
     print("Loading CSVs…")
     jobs = pd.read_csv(jobs_path)
     shifts = pd.read_csv(shifts_path)
+    now_ts = pd.Timestamp(now_ts).floor("min")
 
     # normalize types
     jobs["job_id"] = jobs["job_id"].astype(str).str.strip()
@@ -78,7 +79,7 @@ def load_cleaned_inputs(jobs_path, shifts_path, unlimited_path, outsourcing_path
 
     ops_mask = jobs["RecordType"].isin(SCHEDULE_RT) & jobs["effective_deadline"].notna()
     already_late_ops = int(
-        (jobs.loc[ops_mask, "effective_deadline"] < NOW).sum()
+        (jobs.loc[ops_mask, "effective_deadline"] < now_ts).sum()
     )
 
     ord_mask = (
@@ -87,7 +88,7 @@ def load_cleaned_inputs(jobs_path, shifts_path, unlimited_path, outsourcing_path
         & (jobs["LatestDateHead"].dt.year >= 2025)
     )
     already_late_orders = int(
-        jobs.loc[ord_mask & (jobs["LatestDateHead"] < NOW), "OrderNo"].nunique()
+        jobs.loc[ord_mask & (jobs["LatestDateHead"] < now_ts), "OrderNo"].nunique()
     )
 
     # shifts

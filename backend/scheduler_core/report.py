@@ -76,6 +76,7 @@ def write_summary(
     unplaced_df,
     out_csv,
     orders_csv,
+    now_ts,
     eligible_ops=0,
     pre_ops_late=0,
     pre_orders_late=0,
@@ -96,8 +97,8 @@ def write_summary(
 
     kpis = compute_kpis_multi(plan_df)
     pct_pre_ops_late = (pre_ops_late / max(1, eligible_ops) * 100.0)
-    real_gap_min, ind_gap_min = sum_delay_in_shift_minutes(plan_df, shifts)
-    sched_kpis = compute_scheduler_kpis(plan_df, jobs)
+    real_gap_min, ind_gap_min = sum_delay_in_shift_minutes(plan_df, shifts, now_ts)
+    sched_kpis = compute_scheduler_kpis(plan_df, jobs, now_ts)
 
     summary = pd.DataFrame(
         [

@@ -1,11 +1,11 @@
 import heapq, math
 import pandas as pd
 from .config import (
-    DEFAULT_WEIGHTS, GRACE_DAYS, INDUSTRIAL_FACTOR, NOW,
+    DEFAULT_WEIGHTS, GRACE_DAYS, INDUSTRIAL_FACTOR,
     SCHEDULE_RT
 )
 from .windows import build_windows
-from scheduler_state import cancel_flag
+
 
 #helpers
 def to_int(v, default=0):
@@ -32,17 +32,13 @@ def has_effective_deadline(row) -> bool:
     ddl = row.get("effective_deadline")
     return isinstance(ddl, pd.Timestamp) and pd.notna(ddl) and ddl.year >= 2025
 
-def _check_cancel(scenario_name):
-    if scenario_name and cancel_flag.get(scenario_name):
-        print(f"[SCHEDULER] CANCEL DETECTED inside scheduler() for {scenario_name}")
-        return True
-    return False
+
 
 #scoring
-def heap_key(row, earliest_ts, cont_same_machine, weights):
+def heap_key(row, earliest_ts, cont_same_machine, weights, now_ts):
     ddl = row.get("effective_deadline")
     has_ddl = 0 if (isinstance(ddl, pd.Timestamp) and pd.notna(ddl)) else 1
-    ddl_minutes = max(0, minutes_between(NOW, ddl)) if pd.notna(ddl) else 10_000_000
+    ddl_minutes = max(0, minutes_between(now_ts, ddl)) if pd.notna(ddl) else 10_000_000
 
     grp = to_int(row.get("PriorityGroup"), 2)
     ost = to_int(row.get("Orderstate"), 0)
@@ -61,7 +57,7 @@ def heap_key(row, earliest_ts, cont_same_machine, weights):
     cont = 0 if cont_same_machine else 1
     dur = to_int_nonneg(row.get("duration_min"), 0)
     pos = to_int(row.get("OrderPos"), 0)
-    earliest_min = max(0, minutes_between(NOW, earliest_ts))
+    earliest_min = max(0, minutes_between(now_ts, earliest_ts))
 
     lateness = 0
     duration_late = 0
@@ -91,8 +87,91 @@ def heap_key(row, earliest_ts, cont_same_machine, weights):
 
 
 
-def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set, weights, scenario_name=None):
-    windows_by_wp, earliest_global, first_by_wp = build_windows(shifts)
+def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set, weights, now_ts, cancel_check = None, locked_ops=None,freeze_until=None, freeze_pg2=False):
+
+    windows_by_wp, earliest_global, first_by_wp = build_windows(shifts, now_ts)
+
+
+    # FREEZE HORIZON ENFORCEMENT
+    locked_df = None
+    locked_ids = set()
+    locked_plan_rows = []
+
+    if locked_ops is not None and len(locked_ops) > 0:
+        locked_df = locked_ops.copy()
+
+        # Ensure columns exist (matches your plan.csv columns)
+        needed = ["job_id", "WorkPlaceNo", "Start", "End"]
+        if not all(c in locked_df.columns for c in needed):
+            print(f"[FREEZE] locked_ops missing columns; skipping locks. Have={list(locked_df.columns)}")
+            locked_df = None
+
+    if locked_df is not None:
+        locked_df["job_id"] = locked_df["job_id"].astype(str).str.strip()
+        locked_df["WorkPlaceNo"] = locked_df["WorkPlaceNo"].astype(str).str.strip()
+        locked_df["Start"] = pd.to_datetime(locked_df["Start"], errors="coerce")
+        locked_df["End"] = pd.to_datetime(locked_df["End"], errors="coerce")
+
+        if "Duration" in locked_df.columns:
+            dur0 = pd.to_numeric(locked_df["Duration"], errors="coerce").fillna(0).astype(int).eq(0)
+            m = dur0 & locked_df["Start"].notna() & locked_df["End"].isna()
+            locked_df.loc[m, "End"] = locked_df.loc[m, "Start"]
+
+            # If End missing but Start exists (even without Duration), assume instantaneous lock
+        m2 = locked_df["Start"].notna() & locked_df["End"].isna()
+        locked_df.loc[m2, "End"] = locked_df.loc[m2, "Start"]
+
+
+
+        before = len(locked_df)
+
+        bad_start = locked_df["Start"].isna().sum()
+        bad_end = locked_df["End"].isna().sum()
+        bad_order = (locked_df["End"] < locked_df["Start"]).sum()
+
+        print(f"[FREEZE-DBG] locked_ops rows={before} bad_start={bad_start} bad_end={bad_end} end<start={bad_order}")
+
+        locked_df = locked_df[
+            locked_df["Start"].notna()
+            & locked_df["End"].notna()
+            & (locked_df["End"] >= locked_df["Start"])  # <-- allow 0 duration
+            ].copy()
+
+        locked_ids = set(locked_df["job_id"].tolist())
+        print(f"[FREEZE] Applying locks: {len(locked_ids)} ops")
+
+        # Helper: subtract [a,b) from a machine's windows
+        def _subtract_interval(wdf, a, b):
+            # 0-duration locks should NOT eat capacity
+            if pd.isna(a) or pd.isna(b) or b <= a:
+                nd = wdf.copy()
+                if "cursor" not in nd.columns:
+                    nd["cursor"] = nd["start"]
+                return nd
+            out = []
+            for _, rr in wdf.iterrows():
+                s, e = rr["start"], rr["end"]
+                if e <= a or s >= b:
+                    out.append((s, e))
+                    continue
+                if s < a:
+                    out.append((s, a))
+                if b < e:
+                    out.append((b, e))
+            nd = pd.DataFrame(out, columns=["start", "end"])
+            if nd.empty:
+                return nd.assign(cursor=pd.NaT)
+            nd["cursor"] = nd["start"]
+            return nd[nd["end"] > nd["start"]].reset_index(drop=True)
+
+        # Remove locked capacity from windows_by_wp BEFORE normalizing to wins
+        for wp, g in locked_df.groupby("WorkPlaceNo", sort=False):
+            wpU = str(wp).strip().upper()
+            if wpU not in {str(k).strip().upper() for k in windows_by_wp.keys()}:
+                # windows_by_wp keys might not be upper yet; we'll handle via wins below
+                pass
+
+        # We'll apply subtraction after wins is created (keys upper)
 
     # normalize window dict to UPPER keys to avoid mismatches
     wins = {str(wp).strip().upper(): df.copy() for wp, df in windows_by_wp.items()}
@@ -100,48 +179,173 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
         if "cursor" not in df.columns:
             df["cursor"] = df["start"]  # safety
 
+    # Apply locked intervals onto normalized windows (wins)
+    if locked_df is not None and len(locked_df) > 0:
+        locked_df_cap = locked_df
+        if "PriorityGroup" in locked_df_cap.columns:
+            allowed = [0, 1] + ([2] if freeze_pg2 else [])
+            locked_df_cap = locked_df_cap[
+                locked_df_cap["PriorityGroup"].apply(lambda x: to_int(x, 2)).isin(allowed)
+            ]
+
+        if len(locked_df_cap) > 0:
+            for wp, g in locked_df_cap.groupby("WorkPlaceNo", sort=False):
+                wpU = str(wp).strip().upper()
+                if wpU not in wins:
+                    continue
+                wdf = wins[wpU]
+                for _, rr in g.iterrows():
+                    wdf = _subtract_interval(wdf, rr["Start"], rr["End"])
+                wins[wpU] = wdf
+
+
+
     wp_ptr = {wp: 0 for wp in wins}
-    if _check_cancel(scenario_name):
+    if cancel_check and cancel_check():
         return None, None, None
 
     unlimited_upper = {str(x).strip().upper() for x in unlimited_set}
     outsourcing_upper = {str(x).strip().upper() for x in outsourcing_set}
+    plan_rows, late_rows = [], []
+    end_times = {}
+    placed = set()
 
     # jobs map
     jobdict = {str(r["job_id"]).strip(): r for _, r in jobs.iterrows()}
 
     # indegree init
     indeg = {jid: len(pred_sets.get(jid, set())) for jid in jobdict.keys()}
+
+
+
+    def _collect_all_upstream(start_jid):
+        seen = set()
+        stack = [start_jid]
+        while stack:
+            cur = stack.pop()
+            for p in pred_sets.get(cur, set()):
+                if p not in seen:
+                    seen.add(p)
+                    stack.append(p)
+        return seen
+
+    def _apply_freeze_shift(row, est):
+        """
+        If op cannot start inside frozen horizon, shift its earliest start to freeze_until.
+        This keeps it schedulable later instead of skipping/unplacing it.
+        """
+        if freeze_until is None or pd.isna(est):
+            return est
+
+        pg = to_int(row.get("PriorityGroup"), 2)
+
+        # strict freeze for PG0/1
+        if pg in (0, 1) and est < freeze_until:
+            return freeze_until
+
+        # optional freeze for PG2
+        if pg == 2 and freeze_pg2 and est < freeze_until:
+            return freeze_until
+
+        return est
+
     # ---------- OS5 upstream lock (fixes greedy cursor runaway) ----------
     # If a job is a predecessor of an OS=5 job, then when that predecessor becomes READY,
     # we lock the OS5 machine to stop it being filled ahead before OS5 unlocks.
     os5_lock_wp = set()  # wpU that should not be greedily filled
     os5_pred_to_wp = {}  # pred_jid -> set(wpU of dependent OS5 jobs)
-
+    os5_upstream_jobs = set()
     for os5_jid, r in jobdict.items():
         if to_int(r.get("Orderstate"), 0) != 5:
             continue
+
         wp_os5 = str(r.get("WorkPlaceNo", "")).strip().upper()
         if not wp_os5 or wp_os5 == "TBA":
             continue
-        for p in pred_sets.get(os5_jid, set()):
+
+        upstream = _collect_all_upstream(os5_jid)
+        os5_upstream_jobs |= upstream
+
+        for p in upstream:
             os5_pred_to_wp.setdefault(p, set()).add(wp_os5)
 
-            # ----------------------------------
-            # --- OS5-UPSTREAM PRIORITY BOOST ---
-        OS5_UPSTREAM_BOOST = 5e11  # big, but still less than OS5 absolute priority (-1e12)
-        os5_upstream_jobs = set(os5_pred_to_wp.keys())
+    OS5_UPSTREAM_BOOST = 5e11  # big, but still less than OS5 absolute priority (-1e12)
 
     # ---------------------------------------------------
 
-    plan_rows, late_rows = [], []
-    end_times, placed = {}, set()
 
     # tiny upstream bonus (stronger but still small)
     UPSTREAM_EPS = 0.5
 
     # remember last placed per machine (for strict same-machine continuation)
     machine_last_job = {}  # wpU -> job_id
+
+    # Pre-place locked ops
+    if locked_df is not None and len(locked_df) > 0:
+        # Add locked ops into plan_rows in the same schema you output later
+        for _, rr in locked_df.iterrows():
+            jid = str(rr["job_id"]).strip()
+            wp = str(rr["WorkPlaceNo"]).strip()
+            wpU = wp.upper()
+            st = pd.to_datetime(rr["Start"], errors="coerce")
+            en = pd.to_datetime(rr["End"], errors="coerce")
+
+            # ---- DEBUG: why a lock might be skipped ----
+            if jid not in jobdict:
+                print(f"[FREEZE-DBG] lock jid not in jobs -> skipping: {jid}")
+                continue
+
+            if not wp or wpU == "TBA":
+                print(f"[FREEZE-DBG] lock has bad wp -> skipping: jid={jid} wp={wp}")
+                continue
+
+            if pd.isna(st) or pd.isna(en):
+                print(f"[FREEZE-DBG] lock has NaT times -> skipping: jid={jid} st={st} en={en}")
+                continue
+
+            if en < st:
+                print(f"[FREEZE-DBG] lock end<start -> skipping: jid={jid} st={st} en={en}")
+                continue
+            # -------------------------------------------
+
+            plan_rows.append({
+                "job_id": jid,
+                "OrderNo": rr.get("OrderNo"),
+                "OrderPos": rr.get("OrderPos"),
+                "Orderstate": to_int(rr.get("Orderstate"), 0),
+                "ItemNo": rr.get("ItemNo"),
+                "SortPos": rr.get("SortPos"),
+                "WorkPlaceNo": wp,
+                "Start": st,
+                "End": en,
+                "Duration": to_int_nonneg(rr.get("Duration", rr.get("DurationReal", 0)), 0),
+                "LatestStartDate": pd.to_datetime(rr.get("LatestStartDate", rr.get("effective_deadline")),errors="coerce"),
+                "StartsBeforeLSD": rr.get("StartsBeforeLSD", pd.NA),
+                "WithinGraceDays": rr.get("WithinGraceDays", pd.NA),
+                "PriorityGroup": to_int(rr.get("PriorityGroup"), 2),
+                "IsUnlimitedMachine": bool(rr.get("IsUnlimitedMachine", False)),
+                "IsOutsourcing": bool(rr.get("IsOutsourcing", False)),
+                "OutsourcingDelivery": rr.get("OutsourcingDelivery", pd.NaT),
+                "BufferIndustrial": rr.get("BufferIndustrial", 0),
+                "BufferReal": rr.get("BufferReal", 0),
+                "ReasonSelected": rr.get("ReasonSelected", "FROZEN"),
+                "DurationReal": rr.get("DurationReal", to_int_nonneg(rr.get("Duration", 0), 0)),
+                "RecordType": to_int(rr.get("RecordType"), 0),
+            })
+
+            placed.add(jid)
+            end_times[jid] = en
+            machine_last_job[wpU] = jid
+
+    if placed:
+        for jid in placed:
+            for succ in succ_multi.get(jid, set()):
+                indeg[succ] = max(0, indeg.get(succ, 0) - 1)
+
+    LOOKAHEAD = 20
+    GAP_TOL = pd.Timedelta(minutes=1)
+
+
 
 
 
@@ -185,8 +389,8 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
         return False
 
     def earliest_start_for(jid, row):
-        if _check_cancel(scenario_name):
-            return NOW
+        if cancel_check and cancel_check():
+            return now_ts
         wp = str(row["WorkPlaceNo"]).strip()
         wpU = wp.upper()
 
@@ -200,13 +404,18 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                     ready_times.append(end_times[p])  # no buffer continuation
                 else:
                     buf = int(pd.to_numeric(prow.get("buffer_min", 0), errors="coerce") or 0)
-                    ready_times.append(end_times[p] + pd.Timedelta(minutes=buf))
+
+
+                    # SAFE: coerce before adding timedelta (prevents Timedelta + str crash)
+                    et = pd.to_datetime(end_times.get(p), errors="coerce")
+                    if pd.notna(et):
+                        ready_times.append(et + pd.Timedelta(minutes=buf))
 
         # SPECIAL: outsourcing milestones (no capacity) follow your rules
         if _is_outs_milestone(row):
             ev = pd.to_datetime(row.get("DateStart"), errors="coerce")
             # Case A: future vendor delivery -> place at DateStart
-            if pd.notna(ev) and ev > NOW:
+            if pd.notna(ev) and ev > now_ts:
                 est = ev
             else:
                 # Case B: delivered (ev <= NOW or NaT)
@@ -215,12 +424,12 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                     est = max(ready_times)
                 else:
                     # first op or only after milestones -> show NOW
-                    est = NOW
-
+                    est = now_ts
+            est = _apply_freeze_shift(row, est)
             return est
 
         # Normal capacity-bound ops
-        candidates = [NOW, earliest_global]
+        candidates = [now_ts, earliest_global]
         if ready_times:
             candidates.append(max(ready_times))
 
@@ -236,6 +445,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                 candidates.append(ev_gate)
 
         est = max(candidates)
+        est = _apply_freeze_shift(row, est)
 
         return est
 
@@ -297,25 +507,27 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
     ready_heap = []
     for jid, deg in indeg.items():
         if deg == 0:
-            if _check_cancel(scenario_name):
+            if jid in placed:
+                continue
+
+            if cancel_check and cancel_check():
                 return None, None, None
             r = jobdict[jid]
             est = earliest_start_for(jid, r)
-            score = heap_key(r, est, is_continuation(jid, r), weights)
+            score = heap_key(r, est, is_continuation(jid, r), weights, now_ts)
             if is_upstream_pending(jid):
                 score -= UPSTREAM_EPS
             if jid in os5_upstream_jobs:
-                score -= OS5_UPSTREAM_BOOST
+                score = min(score, -9e11)
             heapq.heappush(ready_heap, (score, jid))
             for wp_lock in os5_pred_to_wp.get(jid, ()):
                 os5_lock_wp.add(wp_lock)
 
 
-    LOOKAHEAD = 20
-    GAP_TOL = pd.Timedelta(minutes=1)
+
 
     while ready_heap:
-        if _check_cancel(scenario_name):
+        if cancel_check and cancel_check():
             return None, None, None
         pulled = [heapq.heappop(ready_heap) for _ in range(min(LOOKAHEAD, len(ready_heap)))]
         picked = None
@@ -356,7 +568,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                 if row_try is None: continue
                 if to_int(row_try.get("Orderstate"), 0) != 5: continue
                 est = earliest_start_for(cand, row_try)
-                sc = heap_key(row_try, est, is_continuation(cand, row_try), weights)
+                sc = heap_key(row_try, est, is_continuation(cand, row_try), weights, now_ts)
                 if is_upstream_pending(cand): sc -= UPSTREAM_EPS
                 if _has_immediate_same_machine_successor(cand, row_try):
                     sc += 1_000_000  # Penalty to place last
@@ -401,7 +613,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                     if not feasible:
                         continue
 
-                    sc = heap_key(row_try, earliest_try, True, weights)
+                    sc = heap_key(row_try, earliest_try, True, weights, now_ts)
                     if is_upstream_pending(cand):
                         sc -= UPSTREAM_EPS
                     if (cont_choice is None) or (sc < cont_choice[0]):
@@ -425,7 +637,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
         #GAP-FILL
         if picked is None:
             for score, cand in pulled:
-                if _check_cancel(scenario_name):
+                if cancel_check and cancel_check():
                     return None, None, None
                 if cand in placed:
                     continue
@@ -538,7 +750,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
             earliest = earliest_start_for(picked, r)
             w = wins.get(wpU)
-            if _check_cancel(scenario_name):
+            if cancel_check and cancel_check():
                 return None, None, None
 
             if pg == 2:
@@ -603,7 +815,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                     curr = earliest
                     segs = []
                     while idx < n and remain > 0:
-                        if _check_cancel(scenario_name):
+                        if cancel_check and cancel_check():
                             return None, None, None
                         ws, we, cur = w.at[idx, "start"], w.at[idx, "end"], w.at[idx, "cursor"]
                         s = max(ws, cur, curr)
@@ -628,7 +840,6 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
                         end_times[picked] = pd.NaT
                         continue
                     start, end = segs[0][0], segs[-1][1]
-
 
 
         starts_before_lsd = pd.NA
@@ -716,7 +927,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
         # release successors
         for succ in succ_multi.get(picked, set()):
-            if _check_cancel(scenario_name):
+            if cancel_check and cancel_check():
                 return None, None, None
             if succ in placed:
                 continue
@@ -724,11 +935,11 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
             if indeg[succ] == 0:
                 row_s = jobdict[succ]
                 est = earliest_start_for(succ, row_s)
-                score = heap_key(row_s, est, is_continuation(succ, row_s), weights)
+                score = heap_key(row_s, est, is_continuation(succ, row_s), weights, now_ts)
                 if is_upstream_pending(succ):
                     score -= UPSTREAM_EPS
                 if succ in os5_upstream_jobs:
-                    score -= OS5_UPSTREAM_BOOST
+                    score = min(score, -9e11)
 
                 heapq.heappush(ready_heap, (score, succ))
 
@@ -738,7 +949,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
 
     plan_df = pd.DataFrame(plan_rows).sort_values(["WorkPlaceNo", "Start"]).reset_index(drop=True)
-    if _check_cancel(scenario_name):
+    if cancel_check and cancel_check():
         return None, None, None
 
     # Unplaced
