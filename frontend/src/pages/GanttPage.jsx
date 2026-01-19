@@ -29,6 +29,8 @@ export default function GanttPage({ onOpenFilters }) {
   const { filters, setMachineList } = useGlobalFilters();
 
   const [plan, setPlan] = useState([]);
+  const [draftPlan, setDraftPlan] = useState([]); // ✅ demo: in-memory edits
+
   const [top10, setTop10] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -55,7 +57,9 @@ export default function GanttPage({ onOpenFilters }) {
     apiGet(`/visualize/${scenario}`)
       .then((res) => {
         setPlan(res.plan || []);
+        setDraftPlan(res.plan || []); // ✅ init editable copy
         setMachineList(res.machines || []);
+
         setTop10(res.top10_machines || []);
         setLoading(false);
       })
@@ -68,7 +72,8 @@ export default function GanttPage({ onOpenFilters }) {
 
   /* FILTER LOGIC */
   const filteredPlan = useMemo(() => {
-    let rows = [...plan];
+    let rows = [...draftPlan];
+
 
     if (filters.machines.length === 0) {
       if (top10.length > 0) {
@@ -122,7 +127,8 @@ export default function GanttPage({ onOpenFilters }) {
     }
 
     return rows;
-  }, [plan, filters, top10]);
+  }, [draftPlan, filters, top10]);
+
 
   /* CHART HEIGHT */
   const machinesShown = [...new Set(filteredPlan.map((r) => r.WorkPlaceNo))];
@@ -238,6 +244,7 @@ export default function GanttPage({ onOpenFilters }) {
             <GanttChart
               key={scenario + JSON.stringify(filters)}
               data={filteredPlan}
+              setDraftPlan={setDraftPlan}   // ✅ add
               height={dynamicHeight}
               showAllLabels={showAllLabels}
               onRefresh={() => setScenario(scenario)}

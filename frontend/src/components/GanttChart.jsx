@@ -21,6 +21,7 @@ const MIN_SPAN_MS = 60 * 60 * 1000; // 1 Stunde (minimale Zoom-Spanne)
 
 export default function GanttChart({
   data,
+  setDraftPlan, // ✅ add
   height,
   onRefresh,
   onDownloadSvg,
@@ -39,6 +40,16 @@ export default function GanttChart({
   const lastZoomRef = useRef(null);
 
   const initialZoomAppliedRef = useRef(false);
+  const dragRef = useRef(null);
+  const [isDraggingBar, setIsDraggingBar] = useState(false);
+  const dragMovedRef = useRef(false);
+  const downPtRef = useRef({ x: 0, y: 0 });
+  const CLICK_SUPPRESS_PX = 6; // tweak 4–8 px
+
+  const SNAP_MIN = 15;
+  const SNAP_MS = SNAP_MIN * 60 * 1000;
+  const snapMs = (t) => Math.round(t / SNAP_MS) * SNAP_MS;
+
 
   const {
     tooltipData,
@@ -76,6 +87,7 @@ useEffect(() => {
     window.removeEventListener("mouseleave", handleGlobalMouseUp);
   };
 }, []);
+
 
 
   /* -----------------------------
@@ -203,6 +215,71 @@ useEffect(() => {
       }),
     [machines, height]
   );
+
+
+useEffect(() => {
+  const onPointerMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const sx = downPtRef.current.x;
+    const sy = downPtRef.current.y;
+    if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > CLICK_SUPPRESS_PX) {
+        dragMovedRef.current = true;
+    }
+
+
+    // horizontal → time shift
+    const msPerPx = (viewDomain.end - viewDomain.start) / innerWidth;
+    const dx = e.clientX - d.clientX0;
+    const shiftMs = dx * msPerPx;
+
+    // vertical → machine row
+    const step = yScale.step ? yScale.step() : yScale.bandwidth();
+    const dy = e.clientY - d.clientY0;
+    const deltaRows = step ? Math.round(dy / step) : 0;
+
+    const fromIdx = d.machineIdx;
+    const toIdx = Math.max(0, Math.min(machines.length - 1, fromIdx + deltaRows));
+    const newMachine = machines[toIdx] ?? d.machine;
+
+    const dur = d.endMs - d.startMs;
+    const newStartMs = snapMs(d.startMs + shiftMs);
+    const newEndMs = newStartMs + dur;
+
+    setDraftPlan?.((prev) =>
+      prev.map((r) => {
+        const rid = r.job_id ?? r.jobId;
+        if (rid !== d.jobId) return r;
+        return {
+          ...r,
+          WorkPlaceNo: newMachine,
+          Start: new Date(newStartMs).toISOString(),
+          End: new Date(newEndMs).toISOString(),
+        };
+      })
+    );
+  };
+
+  const onPointerUp = () => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    setIsDraggingBar(false);
+    // reset after the browser's click event fires
+  setTimeout(() => {
+    dragMovedRef.current = false;
+  }, 0);
+  };
+
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+
+  return () => {
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerUp);
+  };
+}, [innerWidth, machines, setDraftPlan, viewDomain, yScale]);
 
   /* -----------------------------
      Y-Axis labels (Show all vs condensed)
@@ -477,17 +554,61 @@ useEffect(() => {
                 )}
 
                 {/* Grundbalken */}
-                <rect x={x1} y={y} width={barWidth} height={barHeight} rx={6} fill={baseFill} stroke={borderColor} strokeWidth={1.1} onMouseDown={(e) => e.stopPropagation()}   onMouseEnter={() =>
-                    showTooltip({
-                    tooltipData: job,
-                    tooltipLeft: x1 + barWidth / 2,
-                    tooltipTop: y - 10,
-                    })
-                    }
-                    onMouseLeave={hideTooltip}
-                    onClick={() => onBarClick && onBarClick(job)}
-                    style={{ cursor: "pointer" }}
-                />
+                <rect
+  x={x1}
+  y={y}
+  width={barWidth}
+  height={barHeight}
+  rx={6}
+  fill={baseFill}
+  stroke={borderColor}
+  strokeWidth={1.1}
+  onPointerDown={(e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dragMovedRef.current = false;
+    downPtRef.current = { x: e.clientX, y: e.clientY };
+
+
+    // stop panning if it was active
+    setIsPanning(false);
+    lastPanXRef.current = null;
+
+    setIsDraggingBar(true);
+
+    // capture pointer so move keeps firing
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+
+    dragRef.current = {
+      jobId: job.job_id,
+      startMs: job.Start.getTime(),
+      endMs: job.End.getTime(),
+      machine: job.Machine,
+      machineIdx: machines.indexOf(job.Machine),
+      clientX0: e.clientX,
+      clientY0: e.clientY,
+    };
+  }}
+  onPointerEnter={() =>
+    showTooltip({
+      tooltipData: job,
+      tooltipLeft: x1 + barWidth / 2,
+      tooltipTop: y - 10,
+    })
+  }
+  onPointerLeave={hideTooltip}
+  onClick={(e) => {
+  if (dragMovedRef.current) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+  onBarClick && onBarClick(job);
+}}
+
+  style={{ cursor: isDraggingBar ? "grabbing" : "grab" }}
+/>
+
 
 
                 {/* Bild links + Ordernummer (nur bei Wochen-Zoom) */}
