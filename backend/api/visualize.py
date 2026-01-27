@@ -1,9 +1,32 @@
 # backend/api/visualize.py
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from pathlib import Path
 import pandas as pd
+import traceback
 
 visualize_bp = Blueprint("visualize", __name__, url_prefix="/api/visualize")
+
+CANDIDATE_SUFFIX = "_candidate"
+
+def pick_output_file(base: Path, filename: str) -> Path:
+    """
+    If request has ?version=candidate, prefer *_candidate files if they exist.
+    Otherwise use baseline file.
+    """
+    version = (request.args.get("version") or "").strip().lower()
+
+    if version == "candidate":
+        if filename.endswith(".csv"):
+            cand = base / filename.replace(".csv", f"{CANDIDATE_SUFFIX}.csv")
+        elif filename.endswith(".json"):
+            cand = base / filename.replace(".json", f"{CANDIDATE_SUFFIX}.json")
+        else:
+            cand = base / (filename + CANDIDATE_SUFFIX)
+
+        if cand.exists():
+            return cand
+
+    return base / filename
 
 
 # Helper: Read CSV safely and sanitize NaN → None
@@ -13,6 +36,14 @@ def read_csv_safe(path: Path):
     try:
         df = pd.read_csv(path)
         df = df.where(pd.notna(df), None)
+
+        # ✅ CRITICAL: Strip timezone from datetime columns
+        for col in df.columns:
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+                if df[col].dt.tz is not None:
+                    df[col] = df[col].dt.tz_localize(None)
+
         return df.to_dict(orient="records")
     except Exception as e:
         print(f"Error reading {path}: {e}")
@@ -20,6 +51,16 @@ def read_csv_safe(path: Path):
 
 
 def sanitize_df(df: pd.DataFrame):
+    # Ensure datetime columns are naive (no timezone)
+    for col in ["Start", "End", "LatestStartDate", "OutsourcingDelivery"]:
+        if col in df.columns:
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                # Remove timezone if present
+                if hasattr(df[col].dt, 'tz') and df[col].dt.tz is not None:
+                    df[col] = df[col].dt.tz_localize(None)
+                # Convert to ISO string WITHOUT 'Z' suffix
+                df[col] = df[col].dt.strftime("%Y-%m-%dT%H:%M:%S")
+
     df = df.where(pd.notna(df), None)
     return df.to_dict(orient="records")
 
@@ -118,11 +159,11 @@ def get_visualization_data(scenario):
         return jsonify({"ok": False, "error": "Scenario output not found"}), 404
 
     # File paths
-    plan_file = base / "plan.csv"
-    late_file = base / "late.csv"
-    unplaced_file = base / "unplaced.csv"
-    orders_file = base / "orders_delivery.csv"
-    summary_file = base / "summaryFile.csv"
+    plan_file = pick_output_file(base, "plan.csv")
+    late_file = pick_output_file(base, "late.csv")
+    unplaced_file = pick_output_file(base, "unplaced.csv")
+    orders_file = pick_output_file(base, "orders_delivery.csv")
+    summary_file = pick_output_file(base, "summaryFile.csv")
 
     # Load + sanitize
     plan = read_csv_safe(plan_file)
@@ -130,7 +171,7 @@ def get_visualization_data(scenario):
     unplaced = read_csv_safe(unplaced_file)
     orders = read_csv_safe(orders_file)
 
-    #SUMMARY
+    # SUMMARY
     summary = []
     if summary_file.exists():
         try:
@@ -140,17 +181,20 @@ def get_visualization_data(scenario):
         except Exception as e:
             print("Summary read error:", e)
 
-
     # PLAN sorting + machine + utilization
     try:
         df_plan = pd.DataFrame(plan)
 
         if not df_plan.empty:
-            # Sort plan by machine + start time
+            # Parse as naive datetime (CRITICAL)
             df_plan["Start"] = pd.to_datetime(df_plan["Start"], errors="coerce")
+            if hasattr(df_plan["Start"].dt, 'tz') and df_plan["Start"].dt.tz is not None:
+                df_plan["Start"] = df_plan["Start"].dt.tz_localize(None)
+
+            # Sort plan by machine + start time
             df_plan = df_plan.sort_values(["WorkPlaceNo", "Start"], na_position="last")
 
-            # Extract machines from plan (same as before)
+            # Extract machines from plan
             machines = sorted(
                 set(
                     str(x).strip()
@@ -162,7 +206,17 @@ def get_visualization_data(scenario):
             # Compute utilization + top10 (vectorized helper)
             util_pct, top10_list = compute_machine_utilization_from_plan(df_plan)
 
-            plan = sanitize_df(df_plan)
+            # Convert datetime columns to ISO strings (handles NaT properly)
+            for col in ["Start", "End", "LatestStartDate", "OutsourcingDelivery"]:
+                if col in df_plan.columns:
+                    if pd.api.types.is_datetime64_any_dtype(df_plan[col]):
+                        # Convert to string, NaT becomes None
+                        df_plan[col] = df_plan[col].apply(
+                            lambda x: x.strftime("%Y-%m-%dT%H:%M:%S") if pd.notna(x) else None
+                        )
+
+            # Now replace any remaining NaN/None
+            plan = df_plan.where(pd.notna(df_plan), None).to_dict(orient="records")
         else:
             machines = []
             util_pct = {}
@@ -170,6 +224,8 @@ def get_visualization_data(scenario):
 
     except Exception as e:
         print("Plan processing failed:", e)
+        import traceback
+        traceback.print_exc()
         machines = []
         util_pct = {}
         top10_list = []
@@ -182,11 +238,10 @@ def get_visualization_data(scenario):
         "unplaced": unplaced,
         "orders": orders,
         "summary": summary,
-        "machines": machines,               # All machines from PLAN
-        "machine_utilization": util_pct,    # % busy (relative measure)
-        "top10_machines": top10_list        # Sorted top 10 for Gantt default
+        "machines": machines,
+        "machine_utilization": util_pct,
+        "top10_machines": top10_list
     })
-
 
 
 #KPI DASHBOARD ENDPOINT
@@ -198,8 +253,8 @@ def get_kpis(scenario):
     for a given scenario, plus Late Ops buckets (DaysLate bands).
     """
     base = Path("scenarios") / scenario / "output"
-    summary_file = base / "summaryFile.csv"
-    late_file = base / "late.csv"
+    summary_file = pick_output_file(base, "summaryFile.csv")
+    late_file = pick_output_file(base, "late.csv")
 
     if not base.exists() or not summary_file.exists():
         return jsonify({"ok": False, "error": "summaryFile.csv not found"}), 404
@@ -372,7 +427,8 @@ def get_utilization_details(scenario):
     - job lists per machine
     """
     base = Path("scenarios") / scenario / "output"
-    plan_file = base / "plan.csv"
+    plan_file = pick_output_file(base, "plan.csv")
+
 
     if not plan_file.exists():
         return jsonify({"ok": False, "error": "plan.csv missing"}), 404
@@ -502,7 +558,8 @@ def get_utilization_details(scenario):
 @visualize_bp.get("/<scenario>/heatmap")
 def get_heatmap(scenario):
     base = Path("scenarios") / scenario / "output"
-    plan_file = base / "plan.csv"
+    plan_file = pick_output_file(base, "plan.csv")
+
 
     if not plan_file.exists():
         return jsonify({"ok": False, "machines": [], "dates": [], "values": [], "top10_machines": []})
@@ -569,7 +626,8 @@ def get_heatmap(scenario):
 @visualize_bp.get("/<scenario>/idle")
 def get_idle_data(scenario):
     base = Path("scenarios") / scenario / "output"
-    plan_file = base / "plan.csv"
+    plan_file = pick_output_file(base, "plan.csv")
+
 
     if not plan_file.exists():
         return jsonify({
@@ -646,7 +704,8 @@ def get_idle_data(scenario):
 @visualize_bp.get("/<scenario>/order/<order_no>")
 def get_order_routing(scenario, order_no):
     base = Path("scenarios") / scenario / "output"
-    plan_file = base / "plan.csv"
+    plan_file = pick_output_file(base, "plan.csv")
+
 
     if not plan_file.exists():
         return jsonify({"ok": False, "operations": []})

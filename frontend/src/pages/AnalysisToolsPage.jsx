@@ -239,16 +239,17 @@ export default function AnalysisToolsPage() {
               HAUPTBEREICH
       ----------------------------------- */}
       <Box
-        sx={{
-          flexGrow: 1,
-          width: "100%",
-          maxWidth: "100%",
-          overflowX: "hidden",
-          px: 4,
-          pt: 1,
-          pb: 4,
-        }}
-      >
+  sx={{
+    flexGrow: 1,
+    width: "100%",
+    maxWidth: "100%",
+    overflowX: "hidden",
+    px: 0,
+    pt: 0,
+    pb: 0,
+  }}
+>
+
         <Routes>
           <Route
             path="gantt"

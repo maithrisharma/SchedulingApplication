@@ -1,13 +1,8 @@
 // src/pages/kpis/KpiLateOpsPage.jsx
+// (same logic, just made layout + typography consistent with PageLayout / ScenarioListPage)
 
 import { useEffect, useState } from "react";
-import {
-  Box,
-  Card,
-  Typography,
-  CircularProgress,
-  Alert,
-} from "@mui/material";
+import { Box, Card, Typography, CircularProgress, Alert } from "@mui/material";
 
 import {
   BarChart,
@@ -22,6 +17,8 @@ import {
 import { useScenario } from "../context/ScenarioContext";
 import { apiGet } from "../api";
 
+import PageLayout from "../components/PageLayout";
+
 export default function KpiLateOpsPage() {
   const { scenario } = useScenario();
 
@@ -34,6 +31,7 @@ export default function KpiLateOpsPage() {
 
     async function load() {
       try {
+        setErr("");
         setLoading(true);
         const res = await apiGet(`/visualize/${scenario}/kpis`);
         if (!res.ok) throw new Error(res.error || "Fehler beim Laden");
@@ -63,88 +61,55 @@ export default function KpiLateOpsPage() {
       </Box>
     );
 
-  if (err) return <Alert severity="error" sx={{ m: 4 }}>{err}</Alert>;
+  if (err)
+    return (
+      <Alert severity="error" sx={{ m: 4 }}>
+        {err}
+      </Alert>
+    );
+
   if (!data) return null;
 
   return (
-    <Box
-      sx={{
-        backgroundColor: "#f8fafc",
-        minHeight: "100vh",
-        p: { xs: 2, md: 4 },
-      }}
+    <PageLayout
+      title="Verspätete Arbeitsvorgänge"
+      subtitle="Verteilung nach Tagen verspätet"
+      maxWidth={1400}
     >
-      {/* TITLE SECTION — MATCHING KPI SUMMARY PAGE */}
-      <Box sx={{ textAlign: "center", mb: 4 }}>
-        <Typography
-          variant="h4"
-          fontWeight={900}
-          sx={{
-            fontSize: { xs: "1.9rem", md: "2.3rem" },
-            mb: 1,
-          }}
-        >
-          Verspätete Arbeitsvorgänge
-        </Typography>
-
-        <Typography
-          variant="subtitle1"
-          sx={{
-            color: "#64748b",
-            fontSize: { xs: "1rem", md: "1.15rem" },
-          }}
-        >
-          Szenario:{" "}
-          <strong style={{ color: "#2563eb" }}>{scenario}</strong>
-        </Typography>
-      </Box>
-
-      {/* CHART CARD — CONSISTENT SHADOW + RADIUS */}
       <Card
         sx={{
-          maxWidth: 1400,
-          mx: "auto",
-          p: { xs: 3, md: 4 },
           borderRadius: 4,
           boxShadow: "0 12px 28px rgba(0,0,0,0.05)",
           bgcolor: "white",
+          p: { xs: 2.5, md: 3.5 },
         }}
       >
-        <Typography
-          variant="h5"
-          fontWeight={800}
-          sx={{
-            mb: 3,
-            color: "#1e293b",
-            fontSize: { xs: "1.3rem", md: "1.6rem" },
-          }}
-        >
-          Verteilung nach Tagen verspätet
-        </Typography>
 
-        <Box sx={{ height: { xs: 280, md: 360 } }}>
+
+        <Box sx={{ height: { xs: 300, sm: 340, md: 380 } }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={data}
-              margin={{ top: 10, right: 20, left: 10, bottom: 40 }}
+              margin={{ top: 10, right: 20, left: 10, bottom: 48 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
 
               <XAxis
                 dataKey="label"
+                interval={0}
                 angle={-35}
                 textAnchor="end"
-                height={50}
-                tick={{ fontSize: 13 }}
+                height={60}
+                tick={{ fontSize: 12 }}
               />
 
-              <YAxis tick={{ fontSize: 13 }} />
+              <YAxis tick={{ fontSize: 12 }} />
 
               <Tooltip
                 contentStyle={{
                   borderRadius: 12,
-                  border: "none",
-                  boxShadow: "0 8px 20px rgba(0,0,0,0.15)",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 10px 25px rgba(2,6,23,0.12)",
                 }}
               />
 
@@ -152,12 +117,12 @@ export default function KpiLateOpsPage() {
                 dataKey="value"
                 fill="#6366f1"
                 radius={6}
-                barSize={42}
+                maxBarSize={42}
               />
             </BarChart>
           </ResponsiveContainer>
         </Box>
       </Card>
-    </Box>
+    </PageLayout>
   );
 }

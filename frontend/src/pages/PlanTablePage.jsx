@@ -1,6 +1,7 @@
 // src/pages/PlanTablePage.jsx
 
 import { useEffect, useState, useMemo } from "react";
+import PageLayout from "../components/PageLayout";
 import {
   Box,
   Card,
@@ -781,19 +782,15 @@ export default function PlanTablePage() {
 
   return (
     <ThemeProvider theme={gridTheme}>
-      <Box sx={{ p: 4, bgcolor: "#f1f5f9", minHeight: "100vh" }}>
-        <Typography variant="h4" align="center" fontWeight="bold" gutterBottom>
-          Plantabellen-Ansicht
-        </Typography>
-
-        <Typography align="center" color="text.secondary" mb={4}>
-          Szenario:{" "}
-          <strong style={{ color: "#2563eb" }}>{scenario || "-"}</strong>
-        </Typography>
-
-        <Card sx={{ borderRadius: 3, boxShadow: 8 }}>
-          <CardContent sx={{ p: 4 }}>
-            {/* Top bar: Scenario selector | Tabs | Buttons */}
+      <PageLayout title="Plantabellen-Ansicht" maxWidth={1600}>
+      <Card
+        sx={{
+          borderRadius: 4,
+          boxShadow: "0 12px 32px rgba(0,0,0,0.08)", // consistent shadow
+        }}
+      >
+        <CardContent sx={{ p: 4 }}>
+          {/* Top bar: Scenario selector | Tabs | Buttons */}
             <Stack
               direction="row"
               justifyContent="space-between"
@@ -801,25 +798,7 @@ export default function PlanTablePage() {
               mb={3}
             >
               <Stack direction="row" spacing={2} alignItems="center">
-                <FormControl size="small" sx={{ minWidth: 220 }}>
-                  <Select
-                    value={scenario || ""}
-                    displayEmpty
-                    onChange={(e) => setScenario(e.target.value)}
-                    renderValue={(selected) => selected || "Szenario wählen"}
-                  >
-                    {scenarioOptions.length === 0 && (
-                      <MenuItem value="">
-                        <em>Keine Szenarien</em>
-                      </MenuItem>
-                    )}
-                    {scenarioOptions.map((s) => (
-                      <MenuItem key={s} value={s}>
-                        {s}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+
 
                 <Tabs
                   value={activeTab}
@@ -1421,7 +1400,7 @@ export default function PlanTablePage() {
             </Box>
           )}
         </Popover>
-      </Box>
+      </PageLayout>
     </ThemeProvider>
   );
 }

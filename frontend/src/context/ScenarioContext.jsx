@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { apiGet } from "../api";
 
 const ScenarioContext = createContext();
 
@@ -6,6 +7,9 @@ export function ScenarioProvider({ children }) {
   const [scenario, setScenario] = useState(
     () => localStorage.getItem("selectedScenario") || ""
   );
+
+  // ✅ global scenario list (used by TopNav + ScenarioListPage)
+  const [scenarios, setScenarios] = useState([]);
 
   // Globally selected order (for Gantt ↔ Auftragsrouting)
   const [selectedOrder, setSelectedOrder] = useState(() => {
@@ -28,14 +32,14 @@ export function ScenarioProvider({ children }) {
   useEffect(() => {
     if (scenario) {
       localStorage.setItem("selectedScenario", scenario);
+    } else {
+      localStorage.removeItem("selectedScenario");
     }
   }, [scenario]);
 
   // Keep selectedOrder bound to current scenario
   useEffect(() => {
-    const storedScenarioForOrder = localStorage.getItem(
-      "selectedOrderScenario"
-    );
+    const storedScenarioForOrder = localStorage.getItem("selectedOrderScenario");
 
     if (!scenario) {
       setSelectedOrder("");
@@ -63,9 +67,36 @@ export function ScenarioProvider({ children }) {
     }
   }, [selectedOrder, scenario]);
 
+  // ✅ reload scenarios from backend (used by pages + topnav)
+  const refreshScenarios = useCallback(async () => {
+    const res = await apiGet("/scenarios/list");
+    const list = res.scenarios || [];
+    setScenarios(list);
+
+    // if active scenario no longer exists, reset it
+    if (scenario && !list.includes(scenario)) {
+      setScenario("");
+    }
+
+    return list;
+  }, [scenario]);
+
+  // initial load
+  useEffect(() => {
+    refreshScenarios().catch(() => {});
+  }, [refreshScenarios]);
+
   return (
     <ScenarioContext.Provider
-      value={{ scenario, setScenario, selectedOrder, setSelectedOrder }}
+      value={{
+        scenario,
+        setScenario,
+        scenarios,
+        setScenarios,
+        refreshScenarios,
+        selectedOrder,
+        setSelectedOrder,
+      }}
     >
       {children}
     </ScenarioContext.Provider>

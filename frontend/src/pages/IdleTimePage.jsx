@@ -8,9 +8,6 @@ import {
   Typography,
   CircularProgress,
   Alert,
-  Select,
-  MenuItem,
-  Stack,
   Button,
 } from "@mui/material";
 
@@ -36,6 +33,8 @@ import { useScenario } from "../context/ScenarioContext";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
 import { apiGet } from "../api";
 
+import PageLayout from "../components/PageLayout";
+
 const ALL_SENTINEL = "__ALL__";
 
 const TREND_COLORS = [
@@ -50,10 +49,10 @@ const TREND_COLORS = [
 ];
 
 export default function IdleTimePage({ onOpenFilters }) {
-  const { scenario, setScenario } = useScenario();
+  const { scenario } = useScenario();
   const { filters } = useGlobalFilters();
 
-  const [scenarioList, setScenarioList] = useState([]);
+  const [scenarioList, setScenarioList] = useState([]); // keep (even if unused now)
   const [idleData, setIdleData] = useState(null);
   const [utilData, setUtilData] = useState(null);
 
@@ -76,6 +75,7 @@ export default function IdleTimePage({ onOpenFilters }) {
     if (!scenario) return;
 
     setLoading(true);
+    setErr("");
 
     Promise.all([
       apiGet(`/visualize/${scenario}/idle`),
@@ -84,12 +84,11 @@ export default function IdleTimePage({ onOpenFilters }) {
       .then(([idleRes, utilRes]) => {
         setIdleData(idleRes);
         setUtilData(utilRes);
-        setLoading(false);
       })
       .catch(() => {
         setErr("Leerlaufdaten konnten nicht geladen werden.");
-        setLoading(false);
-      });
+      })
+      .finally(() => setLoading(false));
   }, [scenario]);
 
   /* -------------------------------------------
@@ -138,16 +137,16 @@ export default function IdleTimePage({ onOpenFilters }) {
     };
   }, [idleData, filters]);
 
-  if (loading)
+  if (loading) {
     return (
       <Box sx={{ textAlign: "center", mt: 12 }}>
         <CircularProgress size={80} />
       </Box>
     );
+  }
 
   if (err) return <Alert severity="error">{err}</Alert>;
-  if (!filtered)
-    return <Alert severity="warning">Keine Leerlaufdaten gefunden.</Alert>;
+  if (!filtered) return <Alert severity="warning">Keine Leerlaufdaten gefunden.</Alert>;
 
   /* -------------------------------------------
      Trenddaten für Linienchart ausrichten
@@ -178,145 +177,110 @@ export default function IdleTimePage({ onOpenFilters }) {
     jobs: utilData?.job_counts?.[m] || 0,
   }));
 
-  const utilList = bubbleData.map((d) => d.util);
-  const idleList = bubbleData.map((d) => d.idle);
-
   return (
-    <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", px: 3, pt: 2 }}>
-      <Box sx={{ maxWidth: 1600, mx: "auto" }}>
-        {/* =======================================================
-            TITEL + FILTER BUTTON
-        ======================================================== */}
-        <Box sx={{ position: "relative", mb: 2, mt: 1 }}>
-          <Typography
-            variant="h4"
+    <PageLayout
+      title="Leerlaufzeit-Analyse"
+      maxWidth={1600}
+      headerRight={
+        onOpenFilters ? (
+          <Button
+            variant="text"
+            size="small"
+            startIcon={<FilterList sx={{ fontSize: 18 }} />}
+            onClick={onOpenFilters}
             sx={{
-              fontWeight: 900,
-              textAlign: "center",
-              color: "#0f172a",
+              minHeight: 30,
+              px: 1,
+              fontSize: "clamp(0.75rem, 0.7rem + 0.25vw, 0.9rem)",
+              fontWeight: 650,
+              color: "#0f3b63",
+              textTransform: "none",
+              whiteSpace: "nowrap",
             }}
           >
-            Leerlaufzeit-Analyse
-          </Typography>
+            Filter
+          </Button>
+        ) : null
+      }
+    >
+      {/* =======================================================
+          CHART 1 — Gesamtleerlaufzeit
+      ======================================================= */}
+      <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+          Gesamt-Leerlaufstunden (Top Maschinen)
+        </Typography>
 
-          {onOpenFilters && (
-            <Button
-              variant="text"
-              startIcon={<FilterList />}
-              onClick={onOpenFilters}
-              sx={{
-                position: "absolute",
-                right: 0,
-                top: "50%",
-                transform: "translateY(-30%)",
-                fontSize: 16,
-                color: "#0f3b63",
-              }}
-            >
-              Filter
-            </Button>
-          )}
-
-          <Typography
-            variant="subtitle1"
-            sx={{
-              textAlign: "center",
-              color: "#64748b",
-              mt: 1,
-            }}
+        <ResponsiveContainer width="100%" height={400}>
+          <BarChart
+            data={filtered.machines.map((m) => ({
+              machine: m,
+              hours: filtered.idle_hours[m],
+            }))}
           >
-            Szenario:&nbsp;
-            <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
-          </Typography>
-        </Box>
+            <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
+            <XAxis dataKey="machine" angle={-35} textAnchor="end" height={70} />
+            <YAxis />
+            <Tooltip />
+            <Bar dataKey="hours" fill="#3b82f6" name="Leerlaufstunden" />
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
 
-        {/* =======================================================
-            CHART 1 — Gesamtleerlaufzeit
-        ======================================================== */}
-        <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
-          <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-            Gesamt-Leerlaufstunden (Top Maschinen)
-          </Typography>
+      {/* =======================================================
+          CHART 2 — Leerlauftrend
+      ======================================================= */}
+      <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+          Leerlauftrend (täglich)
+        </Typography>
 
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart
-              data={filtered.machines.map((m) => ({
-                machine: m,
-                hours: filtered.idle_hours[m],
-              }))}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
-              <XAxis dataKey="machine" angle={-35} textAnchor="end" height={70} />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="hours" fill="#3b82f6" name="Leerlaufstunden" />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-
-        {/* =======================================================
-            CHART 2 — Leerlauftrend
-        ======================================================== */}
-        <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
-          <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-            Leerlauftrend (täglich)
-          </Typography>
-
-          <ResponsiveContainer width="100%" height={350}>
-            <LineChart data={alignedTrendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              {filtered.machines.map((m, i) => (
-                <Line
-                  key={m}
-                  type="monotone"
-                  dataKey={m}
-                  stroke={TREND_COLORS[i % TREND_COLORS.length]}
-                  strokeWidth={2}
-                  dot={false}
-                  name={m}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
-
-        {/* =======================================================
-            CHART 3 — Bubble Chart
-        ======================================================== */}
-        <Card sx={{ p: 4, borderRadius: 4 }}>
-          <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-            Leerlauf vs. Auslastung vs. Auftragsmenge (Bubble Chart)
-          </Typography>
-
-          <ResponsiveContainer width="100%" height={420}>
-            <ScatterChart>
-              <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
-              <XAxis
-                type="number"
-                dataKey="util"
-                name="Auslastung %"
+        <ResponsiveContainer width="100%" height={350}>
+          <LineChart data={alignedTrendData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            {filtered.machines.map((m, i) => (
+              <Line
+                key={m}
+                type="monotone"
+                dataKey={m}
+                stroke={TREND_COLORS[i % TREND_COLORS.length]}
+                strokeWidth={2}
+                dot={false}
+                name={m}
               />
-              <YAxis
-                type="number"
-                dataKey="idle"
-                name="Leerlaufstunden"
-              />
-              <ZAxis
-                type="number"
-                dataKey="jobs"
-                name="Auftragsanzahl"
-                range={[80, 700]}
-              />
-              <Tooltip />
-              <Scatter data={bubbleData} fill="#ef4444" />
-            </ScatterChart>
-          </ResponsiveContainer>
-        </Card>
-      </Box>
-    </Box>
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {/* =======================================================
+          CHART 3 — Bubble Chart
+      ======================================================= */}
+      <Card sx={{ p: 4, borderRadius: 4 }}>
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+          Leerlauf vs. Auslastung vs. Auftragsmenge (Bubble Chart)
+        </Typography>
+
+        <ResponsiveContainer width="100%" height={420}>
+          <ScatterChart>
+            <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
+            <XAxis type="number" dataKey="util" name="Auslastung %" />
+            <YAxis type="number" dataKey="idle" name="Leerlaufstunden" />
+            <ZAxis
+              type="number"
+              dataKey="jobs"
+              name="Auftragsanzahl"
+              range={[80, 700]}
+            />
+            <Tooltip />
+            <Scatter data={bubbleData} fill="#ef4444" />
+          </ScatterChart>
+        </ResponsiveContainer>
+      </Card>
+    </PageLayout>
   );
 }

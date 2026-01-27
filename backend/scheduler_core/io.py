@@ -30,6 +30,14 @@ def load_cleaned_inputs(jobs_path, shifts_path, unlimited_path, outsourcing_path
     jobs = pd.read_csv(jobs_path)
     shifts = pd.read_csv(shifts_path)
     now_ts = pd.Timestamp(now_ts).floor("min")
+    if pd.notna(now_ts) and now_ts.tzinfo is not None:
+        now_ts = now_ts.tz_localize(None)
+
+        # ✅ Ensure all datetime columns in jobs are naive
+    for col in jobs.columns:
+        if pd.api.types.is_datetime64_any_dtype(jobs[col]):
+            if jobs[col].dt.tz is not None:
+                jobs[col] = jobs[col].dt.tz_localize(None)
 
     # normalize types
     jobs["job_id"] = jobs["job_id"].astype(str).str.strip()

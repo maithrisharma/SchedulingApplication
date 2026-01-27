@@ -12,7 +12,6 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Grid,
   Dialog,
   DialogActions,
   DialogTitle,
@@ -22,6 +21,8 @@ import {
 import { PlayCircle, CheckCircle } from "@mui/icons-material";
 import { apiGet } from "../api";
 import { useScenario } from "../context/ScenarioContext";
+import PageLayout from "../components/PageLayout";
+import { cardPad } from "../theme/layoutTokens";
 
 export default function SchedulingPage() {
   const { scenario, setScenario } = useScenario();
@@ -38,8 +39,7 @@ export default function SchedulingPage() {
   const [cancelled, setCancelled] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  const BASE =
-    import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+  const BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
   /* ========================================================
         LOAD SCENARIOS
@@ -98,7 +98,6 @@ export default function SchedulingPage() {
         if (!res.running && res.progress === 100) {
           setInfo("Scheduler erfolgreich abgeschlossen!");
         }
-
       } catch (err) {
         console.warn("[UI] Poll error:", err);
       }
@@ -106,7 +105,6 @@ export default function SchedulingPage() {
 
     return () => clearInterval(interval);
   }, [scenario, cancelled, isRunningBackend]);
-
 
   /* ========================================================
         RUN SCHEDULER (BACKGROUND MODE)
@@ -135,7 +133,6 @@ export default function SchedulingPage() {
       }
 
       setInfo("Scheduler gestartet. Bitte warten…");
-
     } catch (err) {
       console.error("[UI] Scheduler start error:", err);
       setError(err.message);
@@ -143,7 +140,6 @@ export default function SchedulingPage() {
       setIsRunningBackend(false);
     }
   }
-
 
   /* ========================================================
         CANCEL BACKGROUND SCHEDULER
@@ -167,147 +163,159 @@ export default function SchedulingPage() {
       setRunning(false);
       setIsRunningBackend(false);
       setProgress(0);
-
     } catch (err) {
       console.error("[UI] Cancel error:", err);
       setError(err.message);
     }
   }
 
-
   /* ========================================================
             RENDER UI
   ======================================================== */
   return (
-    <Box
-      sx={{
-        bgcolor: "#f8fafc",
-        minHeight: "calc(100vh - 64px)",
-        display: "flex",
-        justifyContent: "center",
-        px: { xs: 2, md: 4 },
-        py: { xs: 2, md: 3 },
-      }}
+    <PageLayout
+      title="Scheduler ausführen"
+      subtitle="Optimalen Produktionsplan aus bereinigten Daten erzeugen"
+      maxWidth={1100}
     >
-      <Box sx={{ width: "100%", maxWidth: 1100 }}>
-        <Typography variant="h4" sx={{ fontWeight: 900, textAlign: "center", mb: 1 }}>
-          Scheduler ausführen
-        </Typography>
+      {/* MAIN CARD */}
+      <Card
+        sx={{
+          borderRadius: 4,
+          boxShadow: "0 12px 28px rgba(0,0,0,0.06)",
+          mb: { xs: 3, md: 4 },
+        }}
+      >
+        <CardContent sx={{ p: cardPad, textAlign: "center" }}>
+          <Typography
+            sx={{
+              fontWeight: 800,
+              mb: 3,
+              color: "#0f172a",
+              fontSize: "clamp(1.05rem, 0.95rem + 0.45vw, 1.25rem)",
+            }}
+          >
+            Szenario zur Planung auswählen
+          </Typography>
 
-        <Typography variant="subtitle1" sx={{ textAlign: "center", color: "#64748b", mb: 4 }}>
-          Optimalen Produktionsplan aus bereinigten Daten erzeugen
-        </Typography>
+          {/* SCENARIO SELECT + BUTTONS */}
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", md: "row" },
+              justifyContent: "center",
+              alignItems: "center",
+              gap: 2,
+              mb: 2,
+            }}
+          >
+            <FormControl size="medium" sx={{ minWidth: 260, width: { xs: "100%", sm: 360, md: 320 } }}>
+              <InputLabel>Szenario</InputLabel>
+              <Select
+                value={scenario || ""}
+                label="Szenario"
+                onChange={(e) => setScenario(e.target.value)}
+                sx={{ height: 48 }}
+              >
+                <MenuItem value="">
+                  <em>Bitte auswählen…</em>
+                </MenuItem>
+                {scenarios.map((s) => (
+                  <MenuItem key={s} value={s}>
+                    {s}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
-        {/* MAIN CARD */}
-        <Card sx={{ borderRadius: 4, boxShadow: "0 12px 28px rgba(0,0,0,0.06)", mb: 4 }}>
-          <CardContent sx={{ p: { xs: 3, md: 5 }, textAlign: "center" }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, mb: 4 }}>
-              Szenario zur Planung auswählen
-            </Typography>
-
-            {/* SCENARIO SELECT + BUTTONS */}
-            <Box
+            {/* RUN BUTTON (✅ Upload-blue style) */}
+            <Button
+              variant="contained"
+              size="medium"
+              startIcon={!running && !isRunningBackend && <PlayCircle />}
+              disabled={running || isRunningBackend || !scenario}
+              onClick={handleSchedule}
               sx={{
-                display: "flex",
-                flexDirection: { xs: "column", md: "row" },
-                justifyContent: "center",
-                alignItems: "center",
-                gap: 2,
-                mb: 2,
+                height: 48,
+                px: 4,
+                fontWeight: 700,
+                borderRadius: 3,
+                bgcolor: "#3b82f6",
+                "&:hover": { bgcolor: "#2563eb" },
+                width: { xs: "100%", sm: "auto" },
               }}
             >
-              <FormControl size="medium" sx={{ minWidth: 260 }}>
-                <InputLabel>Szenario</InputLabel>
-                <Select
-                  value={scenario || ""}
-                  label="Szenario"
-                  onChange={(e) => setScenario(e.target.value)}
-                  sx={{ height: 48 }}
-                >
-                  <MenuItem value="">
-                    <em>Bitte auswählen…</em>
-                  </MenuItem>
-                  {scenarios.map((s) => (
-                    <MenuItem key={s} value={s}>
-                      {s}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              {running || isRunningBackend ? "Läuft…" : "Scheduler starten"}
+            </Button>
 
-              {/* RUN BUTTON */}
+            {/* CANCEL BUTTON */}
+            {isRunningBackend && !cancelled && (
               <Button
-                variant="contained"
-                size="medium"
-                startIcon={!running && !isRunningBackend && <PlayCircle />}
-                disabled={running || isRunningBackend || !scenario}
-                onClick={handleSchedule}
+                variant="outlined"
+                color="error"
+                onClick={() => setConfirmCancel(true)}
                 sx={{
                   height: 48,
-                  px: 4,
-                  fontWeight: 600,
-                  bgcolor: "#10b981",
-                  "&:hover": { bgcolor: "#059669" },
+                  px: 3,
+                  fontWeight: 700,
+                  borderRadius: 3,
+                  width: { xs: "100%", sm: "auto" },
                 }}
               >
-                {running || isRunningBackend ? "Läuft…" : "Scheduler starten"}
+                Abbrechen
               </Button>
+            )}
+          </Box>
 
-              {/* CANCEL BUTTON */}
-              {isRunningBackend && !cancelled && (
-                <Button
-                  variant="outlined"
-                  color="error"
-                  onClick={() => setConfirmCancel(true)}
-                  sx={{ height: 48, px: 3, fontWeight: 600 }}
-                >
-                  Abbrechen
-                </Button>
-              )}
+          {/* PROGRESS BAR */}
+          {!cancelled && isRunningBackend && (
+            <Box sx={{ mt: 3 }}>
+              <LinearProgress
+                variant="determinate"
+                value={progress}
+                sx={{ height: 10, borderRadius: 4 }}
+              />
+              <Typography sx={{ mt: 1, fontWeight: 700 }}>
+                Fortschritt: {progress}%
+              </Typography>
             </Box>
+          )}
 
-            {/* PROGRESS BAR */}
-            {!cancelled && isRunningBackend && (
-              <Box sx={{ mt: 3 }}>
-                <LinearProgress variant="determinate" value={progress} sx={{ height: 10, borderRadius: 4 }} />
-                <Typography sx={{ mt: 1, fontWeight: 600 }}>
-                  Fortschritt: {progress}%
-                </Typography>
-              </Box>
-            )}
+          {/* ERRORS */}
+          {error && (
+            <Alert severity="error" sx={{ mt: 3 }}>
+              {error}
+            </Alert>
+          )}
 
-            {/* ERRORS */}
-            {error && <Alert severity="error" sx={{ mt: 3 }}>{error}</Alert>}
+          {/* SUCCESS */}
+          {info && !isRunningBackend && !cancelled && (
+            <Alert severity="success" icon={<CheckCircle />} sx={{ mt: 3 }}>
+              {info}
+            </Alert>
+          )}
 
-            {/* SUCCESS */}
-            {info && !isRunningBackend && !cancelled && (
-              <Alert severity="success" icon={<CheckCircle />} sx={{ mt: 3 }}>
-                {info}
-              </Alert>
-            )}
+          {cancelled && (
+            <Alert severity="warning" sx={{ mt: 3 }}>
+              Scheduler wurde abgebrochen.
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
-            {cancelled && (
-              <Alert severity="warning" sx={{ mt: 3 }}>
-                Scheduler wurde abgebrochen.
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* CANCEL CONFIRMATION DIALOG */}
-        <Dialog open={confirmCancel} onClose={() => setConfirmCancel(false)}>
-          <DialogTitle>Planung abbrechen?</DialogTitle>
-          <DialogContent>
-            <Typography>Möchten Sie den Scheduler wirklich stoppen?</Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setConfirmCancel(false)}>Nein</Button>
-            <Button color="error" onClick={confirmCancelRun}>
-              Ja, abbrechen
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Box>
-    </Box>
+      {/* CANCEL CONFIRMATION DIALOG */}
+      <Dialog open={confirmCancel} onClose={() => setConfirmCancel(false)}>
+        <DialogTitle sx={{ fontWeight: 800 }}>Planung abbrechen?</DialogTitle>
+        <DialogContent>
+          <Typography>Möchten Sie den Scheduler wirklich stoppen?</Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setConfirmCancel(false)}>Nein</Button>
+          <Button color="error" variant="contained" onClick={confirmCancelRun}>
+            Ja, abbrechen
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </PageLayout>
   );
 }

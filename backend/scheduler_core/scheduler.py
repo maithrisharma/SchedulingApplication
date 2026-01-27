@@ -6,6 +6,7 @@ from .config import (
 )
 from .windows import build_windows
 from collections import deque
+import numpy as np
 
 
 # helpers
@@ -89,7 +90,22 @@ def heap_key(row, earliest_ts, cont_same_machine, weights, now_ts):
 
 
 def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set, weights, now_ts, cancel_check=None,
-             locked_ops=None, freeze_until=None, freeze_pg2=False):
+             locked_ops=None, freeze_until=None, freeze_pg2=False, pinned_starts=None):
+    pinned_starts = pinned_starts or {}
+
+    def _to_naive_utc(x):
+        """
+        Normalize any datetime-like to tz-naive Timestamp.
+        - If input has timezone (e.g. '...Z'), convert to UTC and drop tz.
+        - If input is naive already, keep as-is.
+        """
+        ts = pd.to_datetime(x, errors="coerce", utc=True)
+        if pd.isna(ts):
+            return ts
+        return ts.tz_convert(None)
+
+    pinned_starts = {str(k).strip(): _to_naive_utc(v) for k, v in pinned_starts.items()}
+
     windows_by_wp, earliest_global, first_by_wp = build_windows(shifts, now_ts)
 
     # FREEZE HORIZON ENFORCEMENT
@@ -137,6 +153,9 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
         locked_ids = set(locked_df["job_id"].tolist())
         print(f"[FREEZE] Applying locks: {len(locked_ids)} ops")
+
+        def _is_locked(jid):
+            return str(jid).strip() in locked_ids
 
         # Helper: subtract [a,b) from a machine's windows
         def _subtract_interval(wdf, a, b):
@@ -202,7 +221,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
     unlimited_upper = {str(x).strip().upper() for x in unlimited_set}
     outsourcing_upper = {str(x).strip().upper() for x in outsourcing_set}
-    plan_rows, late_rows = [], []
+    plan_rows = []
     end_times = {}
     placed = set()
 
@@ -273,6 +292,8 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
         if cancel_check and cancel_check():
             return None, None, None
         if rr['_os'] == 5:
+            if _is_locked(jid):  # ✅ NEW
+                continue
             wpU = rr['_wpU']
             if wpU and wpU != "TBA":
                 os5_targets_by_wp.setdefault(wpU, set()).add(jid)
@@ -462,6 +483,10 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
         est = max(candidates)
         est = _apply_freeze_shift(row, est)
+        # ✅ STEP 2a: interactive pin (user move)
+        pin = pinned_starts.get(str(jid).strip())
+        if pd.notna(pin):
+            est = max(est, pin)
 
         return est
 
@@ -566,6 +591,8 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
             return None, None, None
         if r['_os'] != 5:
             continue
+        if _is_locked(os5_jid):  # ✅ NEW
+            continue
 
         wp_os5 = r['_wpU']
         if not wp_os5 or wp_os5 == "TBA":
@@ -619,12 +646,13 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
         return pd.NaT
 
-
     os5_all_preds_by_wp = {}
     for os5_jid, rr in jobdict.items():
         if cancel_check and cancel_check():
             return None, None, None
         if rr['_os'] == 5:
+            if _is_locked(os5_jid):  # ✅ NEW
+                continue
             wpU = rr['_wpU']
             if wpU and wpU != "TBA":
                 upstream = _collect_all_upstream(os5_jid)
@@ -642,6 +670,8 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
         if cancel_check and cancel_check():
             return None, None, None
         if r['_os'] != 5:
+            continue
+        if _is_locked(os5_jid):  # ✅ NEW
             continue
         upstream_of_os5[os5_jid] = _collect_all_upstream(os5_jid)
 
@@ -878,6 +908,8 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
             return
 
         for os5_jid in os5_pred_to_jobs.get(picked_jid, ()):
+            if _is_locked(os5_jid):  # ✅ NEW (critical)
+                continue
             if os5_jid in placed:
                 continue
 
@@ -1787,28 +1819,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
             starts_before_lsd = bool(start <= ddl)
             within_grace = bool(start <= (ddl + pd.Timedelta(days=GRACE_DAYS)))
 
-        if pd.notna(ddl) and not within_grace:
-            try:
-                allowed = ddl + pd.Timedelta(days=GRACE_DAYS)
-                if pd.isna(start) or pd.isna(allowed):
-                    delta = pd.Timedelta(0)
-                else:
-                    delta = start - allowed
-                    if delta == pd.NaT:
-                        delta = pd.Timedelta(0)
 
-                days_late = max(0, math.ceil(delta.total_seconds() / 86400))
-            except Exception as e:
-                print("[SAFE-LATE] Timedelta failed:", e)
-                days_late = 0
-                allowed = ddl
-
-            late_rows.append({
-                "job_id": picked, "OrderNo": r.get("OrderNo"), "OrderPos": r.get("OrderPos"),
-                "Orderstate": r['_os'], "WorkPlaceNo": wp,
-                "Start": start, "End": end, "LatestStartDate": ddl, "Allowed": allowed,
-                "DaysLate": days_late, "RecordType": r['_rec']
-            })
 
         if pd.notna(ddl):
             if start > ddl:
@@ -1919,7 +1930,47 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
 
         release_successors_after_place(picked)
 
-    plan_df = pd.DataFrame(plan_rows).sort_values(["WorkPlaceNo", "Start"]).reset_index(drop=True)
+    plan_df = pd.DataFrame(plan_rows)
+    if not plan_df.empty:
+        plan_df = plan_df.sort_values(["WorkPlaceNo", "Start"]).reset_index(drop=True)
+        for col in ["Start", "End", "LatestStartDate", "OutsourcingDelivery"]:
+            if col in plan_df.columns:
+                plan_df[col] = pd.to_datetime(plan_df[col], errors="coerce")
+                if plan_df[col].dt.tz is not None:
+                    plan_df[col] = plan_df[col].dt.tz_localize(None)
+
+    # -------------------------------
+    # OPTION A: derive late_df from plan_df (includes locked ops)
+    # -------------------------------
+    late_df = pd.DataFrame(columns=[
+        "job_id", "OrderNo", "OrderPos", "Orderstate", "WorkPlaceNo",
+        "Start", "End", "LatestStartDate", "Allowed", "DaysLate", "RecordType"
+    ])
+
+    if not plan_df.empty:
+        # make sure datetimes are datetimes
+        plan_df["Start"] = pd.to_datetime(plan_df["Start"], errors="coerce")
+        plan_df["End"] = pd.to_datetime(plan_df["End"], errors="coerce")
+        plan_df["LatestStartDate"] = pd.to_datetime(plan_df["LatestStartDate"], errors="coerce")
+
+        m = plan_df["LatestStartDate"].notna() & plan_df["Start"].notna()
+        tmp = plan_df.loc[m, [
+            "job_id", "OrderNo", "OrderPos", "Orderstate", "WorkPlaceNo",
+            "Start", "End", "LatestStartDate", "RecordType"
+        ]].copy()
+
+        tmp["Allowed"] = tmp["LatestStartDate"] + pd.Timedelta(days=GRACE_DAYS)
+
+        # days late relative to Allowed (grace included)
+        delta_days = (tmp["Start"] - tmp["Allowed"]).dt.total_seconds() / 86400.0
+        tmp["DaysLate"] = np.maximum(0, np.ceil(delta_days.fillna(0))).astype(int)
+
+        late_df = tmp[tmp["DaysLate"] > 0].sort_values(["WorkPlaceNo", "Start"]).reset_index(drop=True)
+        for col in ["Start", "End", "LatestStartDate", "Allowed"]:
+            if col in late_df.columns:
+                late_df[col] = pd.to_datetime(late_df[col], errors="coerce")
+                if late_df[col].dt.tz is not None:
+                    late_df[col] = late_df[col].dt.tz_localize(None)
 
     if cancel_check and cancel_check():
         return None, None, None
@@ -1928,7 +1979,6 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
     placed_ids = set(plan_df["job_id"]) if not plan_df.empty else set()
     all_ids = set(jobdict.keys())
     remaining = sorted(all_ids - placed_ids)
-
     unplaced_rows = []
     for jid in remaining:
         if cancel_check and cancel_check():
@@ -1953,7 +2003,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
             "reason": reason
         })
 
-    late_df = pd.DataFrame(late_rows).sort_values(["WorkPlaceNo", "Start"]).reset_index(drop=True)
+
     unp_df = pd.DataFrame(unplaced_rows)
 
     gap_eval_cache.clear()

@@ -9,29 +9,30 @@ html, body, #root {
   width: 100%;
   height: 100%;
 
+  /* Keep overall app from horizontal scrolling */
   overflow-x: hidden !important;
-  overflow-y: auto !important;   /* RESTORE SCROLL */
+  overflow-y: auto !important;
+
   background: #f7f9fc;
   font-family: Inter, Roboto, Arial, sans-serif;
 }
 
-/* FIX NAVBAR SCROLL BUG */
+/* IMPORTANT: Do NOT clip AppBar children (menus/dropdowns) */
 .MuiAppBar-root {
-  overflow-y: visible !important;
-  overflow-x: hidden !important;
-}
-
-/* Prevent tab bar overflow */
-.MuiTabs-flexContainer {
-  flex-wrap: wrap !important;
-}
-
-.MuiTabs-root {
-  overflow-x: hidden !important;
+  overflow: visible !important;
 }
 
 /* App container */
 #root {
   background: #f7f9fc;
   text-align: left;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
 }

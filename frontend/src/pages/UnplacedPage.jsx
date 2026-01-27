@@ -1,5 +1,6 @@
 // src/pages/UnplacedPage.jsx
 import { useEffect, useState, useMemo } from "react";
+import PageLayout from "../components/PageLayout";
 import {
   Box,
   Card,
@@ -336,53 +337,40 @@ export default function UnplacedPage() {
       </Box>
     );
   }
+const ROW_H = 52;          // DataGrid default-ish row height
+const HEADER_H = 56;       // header height
+const FOOTER_H = 56;       // pagination/footer area (even if minimal)
+const PAD_H = 32;          // some breathing space
+const MIN_H = 260;         // don’t get too small
+const MAX_H = 820;         // don’t get too big
+
+const gridHeight = Math.max(
+  MIN_H,
+  Math.min(MAX_H, HEADER_H + FOOTER_H + PAD_H + filteredRows.length * ROW_H)
+);
 
   // =============================================
   // RENDER
   // =============================================
   return (
     <ThemeProvider theme={gridTheme}>
-      <Box sx={{ p: 4, bgcolor: "#f1f5f9", minHeight: "100vh" }}>
-        <Typography variant="h4" align="center" fontWeight="bold" gutterBottom>
-          Ungeplante Arbeitsvorgänge
-        </Typography>
-
-        <Typography align="center" color="text.secondary" mb={4}>
-          Szenario:{" "}
-          <strong style={{ color: "#2563eb" }}>{scenario || "-"}</strong>
-        </Typography>
-
-        <Card sx={{ borderRadius: 3, boxShadow: 8 }}>
-          <CardContent sx={{ p: 4 }}>
-            {/* Top bar: Scenario selector | Buttons (same style as Late Ops) */}
+      <PageLayout title="Ungeplante Arbeitsvorgänge" maxWidth={1600}>
+    <Card
+      sx={{
+        borderRadius: 4,
+        boxShadow: "0 12px 32px rgba(0,0,0,0.08)",
+      }}
+    >
+      <CardContent sx={{ p: 4 }}>
+        {/* keep EVERYTHING inside here the same */}
             <Stack
               direction="row"
-              justifyContent="space-between"
+              justifyContent="flex-end"
               alignItems="center"
               mb={3}
             >
               <Stack direction="row" spacing={2} alignItems="center">
-                <FormControl size="small" sx={{ minWidth: 220 }}>
-                  <Select
-                    value={scenario || ""}
-                    displayEmpty
-                    onChange={(e) => setScenario(e.target.value)}
-                    renderValue={(selected) =>
-                      selected || "Szenario auswählen"
-                    }
-                  >
-                    {scenarioList.length === 0 && (
-                      <MenuItem value="">
-                        <em>Keine Szenarien</em>
-                      </MenuItem>
-                    )}
-                    {scenarioList.map((s) => (
-                      <MenuItem key={s} value={s}>
-                        {s}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+
               </Stack>
 
               <Stack direction="row" spacing={2}>
@@ -421,7 +409,8 @@ export default function UnplacedPage() {
             </Stack>
 
             {/* DataGrid */}
-            <Box sx={{ height: 820 }}>
+            <Box sx={{ height: gridHeight }}>
+
               <DataGrid
                 rows={filteredRows}
                 columns={columns}
@@ -880,7 +869,7 @@ export default function UnplacedPage() {
             </Box>
           </Box>
         </Popover>
-      </Box>
+      </PageLayout>
     </ThemeProvider>
   );
 }

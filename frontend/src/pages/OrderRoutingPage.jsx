@@ -1,5 +1,5 @@
 // src/pages/OrderRoutingPage.jsx
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import {
   Box,
   Card,
@@ -18,6 +18,8 @@ import { useSelection } from "../context/SelectionContext";
 import { apiGet } from "../api";
 import OrderRoutingChart from "../components/OrderRoutingChart";
 
+import PageLayout from "../components/PageLayout"; // ✅ add
+
 export default function OrderRoutingPage() {
   const { scenario, setScenario } = useScenario();
   const { selection, setSelection } = useSelection();
@@ -31,18 +33,12 @@ export default function OrderRoutingPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  /* -------------------------------
-     LOAD SCENARIOS
-  -------------------------------- */
   useEffect(() => {
     apiGet("/scenarios/list")
       .then((res) => setScenarioList(res.scenarios || []))
       .catch(() => setScenarioList([]));
   }, []);
 
-  /* -------------------------------
-     LOAD ORDER LIST (once per scenario)
-  -------------------------------- */
   useEffect(() => {
     if (!scenario) return;
 
@@ -65,9 +61,6 @@ export default function OrderRoutingPage() {
       .finally(() => setLoading(false));
   }, [scenario]);
 
-  /* -------------------------------
-     LOAD OPERATIONS (SINGLE SOURCE OF TRUTH)
-  -------------------------------- */
   useEffect(() => {
     if (!scenario || !selectedOrder) {
       setOperations([]);
@@ -78,9 +71,7 @@ export default function OrderRoutingPage() {
     setErr("");
 
     apiGet(`/visualize/${scenario}/order/${selectedOrder}`)
-      .then((res) => {
-        setOperations(res.operations || []);
-      })
+      .then((res) => setOperations(res.operations || []))
       .catch(() => {
         setOperations([]);
         setErr("Auftragsrouting konnte nicht geladen werden.");
@@ -89,83 +80,72 @@ export default function OrderRoutingPage() {
   }, [scenario, selectedOrder]);
 
   return (
-    <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", px: 3, pt: 3 }}>
-      <Box sx={{ maxWidth: 1600, mx: "auto" }}>
-        <Typography
-          variant="h4"
-          sx={{ fontWeight: 800, textAlign: "center", mb: 1 }}
+    <PageLayout title="Auftragsrouting" maxWidth={1600}>
+      <Card
+        sx={{
+          borderRadius: 4,
+          p: 3,
+          boxShadow: "0 12px 28px rgba(0,0,0,0.06)", // ✅ consistent (optional)
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          alignItems="center"
+          justifyContent="space-between"
+          spacing={2}
+          sx={{ mb: 3 }}
         >
-          Auftragsrouting
-        </Typography>
-
-        <Typography
-          variant="subtitle1"
-          sx={{ textAlign: "center", color: "#64748b", mb: 3 }}
-        >
-          Szenario:{" "}
-          <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
-        </Typography>
-
-        <Card sx={{ borderRadius: 4, p: 3 }}>
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            alignItems="center"
-            justifyContent="space-between"
-            spacing={2}
-            sx={{ mb: 3 }}
+          <Select
+            value={scenarioList.includes(scenario) ? scenario : ""}
+            onChange={(e) => setScenario(e.target.value)}
+            displayEmpty
+            sx={{ minWidth: 260 }}
           >
-            <Select
-              value={scenarioList.includes(scenario) ? scenario : ""}
-              onChange={(e) => setScenario(e.target.value)}
-              displayEmpty
-              sx={{ minWidth: 260 }}
-            >
-              <MenuItem value="">
-                <em>Szenario auswählen</em>
+            <MenuItem value="">
+              <em>Szenario auswählen</em>
+            </MenuItem>
+
+            {scenarioList.map((s) => (
+              <MenuItem key={s} value={s}>
+                {s}
               </MenuItem>
+            ))}
+          </Select>
 
-              {scenarioList.map((s) => (
-                <MenuItem key={s} value={s}>
-                  {s}
-                </MenuItem>
-              ))}
-            </Select>
+          <Autocomplete
+            options={orders}
+            value={selectedOrder}
+            onChange={(e, v) =>
+              setSelection((prev) => ({
+                ...prev,
+                orderNo: v || null,
+              }))
+            }
+            sx={{ width: 300 }}
+            renderInput={(params) => (
+              <TextField {...params} label="Auftrag auswählen" />
+            )}
+          />
+        </Stack>
 
-            <Autocomplete
-              options={orders}
-              value={selectedOrder}
-              onChange={(e, v) =>
-                setSelection((prev) => ({
-                  ...prev,
-                  orderNo: v || null,
-                }))
-              }
-              sx={{ width: 300 }}
-              renderInput={(params) => (
-                <TextField {...params} label="Auftrag auswählen" />
-              )}
-            />
-          </Stack>
+        {err && <Alert severity="error">{err}</Alert>}
 
-          {err && <Alert severity="error">{err}</Alert>}
+        {loading && (
+          <Box sx={{ textAlign: "center", py: 8 }}>
+            <CircularProgress size={70} />
+          </Box>
+        )}
 
-          {loading && (
-            <Box sx={{ textAlign: "center", py: 8 }}>
-              <CircularProgress size={70} />
-            </Box>
-          )}
+        {!loading && selectedOrder && operations.length === 0 && !err && (
+          <Alert severity="warning">
+            Keine Vorgänge für diesen Auftrag gefunden.
+          </Alert>
+        )}
 
-          {!loading && selectedOrder && operations.length === 0 && !err && (
-            <Alert severity="warning">
-              Keine Vorgänge für diesen Auftrag gefunden.
-            </Alert>
-          )}
-
-          {!loading && operations.length > 0 && (
-            <OrderRoutingChart operations={operations} />
-          )}
-        </Card>
-      </Box>
-    </Box>
+        {!loading && operations.length > 0 && (
+          <OrderRoutingChart operations={operations} />
+        )}
+      </Card>
+    </PageLayout>
   );
 }

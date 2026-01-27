@@ -9,8 +9,6 @@ import {
   ToggleButton,
   CircularProgress,
   Alert,
-  Select,
-  MenuItem,
   Button,
 } from "@mui/material";
 
@@ -32,13 +30,15 @@ import { useScenario } from "../context/ScenarioContext";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
 import { apiGet } from "../api";
 
+import PageLayout from "../components/PageLayout";
+
 const ALL_SENTINEL = "__ALL__";
 
 export default function UtilizationPage({ onOpenFilters }) {
-  const { scenario, setScenario } = useScenario();
+  const { scenario } = useScenario();
   const { filters } = useGlobalFilters();
 
-  const [scenarioList, setScenarioList] = useState([]);
+  const [scenarioList, setScenarioList] = useState([]); // keep (used elsewhere or future)
   const [utilData, setUtilData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -55,16 +55,12 @@ export default function UtilizationPage({ onOpenFilters }) {
     if (!scenario) return;
 
     setLoading(true);
+    setErr("");
 
     apiGet(`/visualize/${scenario}/utilization`)
-      .then((res) => {
-        setUtilData(res);
-        setLoading(false);
-      })
-      .catch(() => {
-        setErr("Auslastungsdaten konnten nicht geladen werden.");
-        setLoading(false);
-      });
+      .then((res) => setUtilData(res))
+      .catch(() => setErr("Auslastungsdaten konnten nicht geladen werden."))
+      .finally(() => setLoading(false));
   }, [scenario]);
 
   const filteredMachines = useMemo(() => {
@@ -82,13 +78,13 @@ export default function UtilizationPage({ onOpenFilters }) {
       const wantBN = filters.priority === "0";
       const wantNBN = filters.priority === "1";
 
-      machines = machines.filter((m) => {
-        return wantBN
+      machines = machines.filter((m) =>
+        wantBN
           ? (utilData.bn_hours[m] ?? 0) > 0
           : wantNBN
           ? (utilData.nbn_hours[m] ?? 0) > 0
-          : true;
-      });
+          : true
+      );
     }
 
     return machines;
@@ -109,7 +105,6 @@ export default function UtilizationPage({ onOpenFilters }) {
 
   const trendData = useMemo(() => {
     if (!utilData) return {};
-
     return filteredMachines.reduce((acc, m) => {
       acc[m] = utilData.daily_trend[m] || [];
       return acc;
@@ -117,182 +112,154 @@ export default function UtilizationPage({ onOpenFilters }) {
   }, [utilData, filteredMachines]);
 
   return (
-    <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", px: 3, pt: 2 }}>
-      <Box sx={{ maxWidth: 1600, mx: "auto" }}>
-        {/* ========================== TITLE ========================== */}
-        <Box sx={{ position: "relative", mb: 2, mt: 1 }}>
-          <Typography
-            variant="h4"
+    <PageLayout
+      title="Maschinenauslastung"
+      maxWidth={1600}
+      headerRight={
+        <Stack
+          direction="row"
+          spacing={1.25}
+          sx={{
+            alignItems: "center",
+            flexWrap: "wrap",
+            rowGap: 0.75,
+            justifyContent: "flex-end",
+          }}
+        >
+          <ToggleButtonGroup
+            value={mode}
+            exclusive
+            onChange={(e, v) => v && setMode(v)}
+            size="small"
             sx={{
-              fontWeight: 800,
-              textAlign: "center",
-              color: "#0f172a",
+              "& .MuiToggleButton-root": {
+                textTransform: "none",
+                fontWeight: 650,
+                px: 1.25,
+                py: 0.65,
+              },
             }}
           >
-            Maschinen­auslastung
-          </Typography>
+            <ToggleButton value="hours">Stunden genutzt</ToggleButton>
+            <ToggleButton value="pct">% Auslastung</ToggleButton>
+          </ToggleButtonGroup>
 
           {onOpenFilters && (
             <Button
               variant="text"
-              startIcon={<FilterList />}
+              size="small"
+              startIcon={<FilterList sx={{ fontSize: 18 }} />}
               onClick={onOpenFilters}
               sx={{
-                position: "absolute",
-                right: 0,
-                top: "50%",
-                transform: "translateY(-30%)",
-                fontSize: 16,
+                minHeight: 30,
+                px: 1,
+                fontSize: "clamp(0.75rem, 0.7rem + 0.25vw, 0.9rem)",
+                fontWeight: 650,
                 color: "#0f3b63",
+                textTransform: "none",
+                whiteSpace: "nowrap",
               }}
             >
               Filter
             </Button>
           )}
+        </Stack>
+      }
+    >
+      {/* ERRORS / LOADING */}
+      {err && <Alert severity="error">{err}</Alert>}
 
-          <Typography
-            variant="subtitle1"
-            sx={{
-              textAlign: "center",
-              color: "#64748b",
-              mt: 1,
-            }}
-          >
-            Szenario:&nbsp;
-            <strong style={{ color: "#3b82f6" }}>{scenario || "—"}</strong>
-          </Typography>
+      {loading && (
+        <Box sx={{ textAlign: "center", py: 10 }}>
+          <CircularProgress size={70} />
         </Box>
+      )}
 
-        {/* ======================== ERRORS / LOADING ======================== */}
-        {err && <Alert severity="error">{err}</Alert>}
-
-        {loading && (
-          <Box sx={{ textAlign: "center", py: 10 }}>
-            <CircularProgress size={70} />
-          </Box>
-        )}
-
-        {/* ========================= CONTENT ========================= */}
-        {!loading && utilData && (
-          <>
-            {/* Scenario selector + toggle */}
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              justifyContent="space-between"
-              alignItems="center"
-              spacing={2}
-              sx={{ mb: 3 }}
-            >
-              <Select
-                value={scenario}
-                onChange={(e) => setScenario(e.target.value)}
-                displayEmpty
-                sx={{ minWidth: 260 }}
-              >
-                <MenuItem value="">
-                  <em>Szenario auswählen</em>
-                </MenuItem>
-                {scenarioList.map((s) => (
-                  <MenuItem key={s} value={s}>
-                    {s}
-                  </MenuItem>
-                ))}
-              </Select>
-
-              <ToggleButtonGroup
-                value={mode}
-                exclusive
-                onChange={(e, v) => v && setMode(v)}
-                size="small"
-              >
-                <ToggleButton value="hours">Stunden genutzt</ToggleButton>
-                <ToggleButton value="pct">% Auslastung</ToggleButton>
-              </ToggleButtonGroup>
-            </Stack>
-
-            {/* MAIN BAR CHART */}
-            <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
-              <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-                {mode === "hours"
-                  ? "Gesamte genutzte Stunden (Top-Down)"
-                  : "Auslastung in % (Top-Down)"}
-              </Typography>
-
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={barData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="machine" />
-                  <YAxis />
-                  <RTooltip />
-                  <Legend />
-
-                  {mode === "hours" ? (
-                    <Bar dataKey="hours" fill="#3b82f6" name="Stunden genutzt" />
-                  ) : (
-                    <Bar dataKey="pct" fill="#10b981" name="% Auslastung" />
-                  )}
-
-                  <Bar dataKey="jobs" fill="#f59e0b" name="Auftragsanzahl" />
-                </BarChart>
-              </ResponsiveContainer>
-            </Card>
-
-            {/* BN vs NBN */}
-            <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
-              <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-                BN vs. NBN Auslastung (Stunden)
-              </Typography>
-
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={barData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="machine" />
-                  <YAxis />
-                  <RTooltip />
-                  <Legend />
-                  <Bar dataKey="bn" fill="#ef4444" name="BN Stunden" />
-                  <Bar dataKey="nbn" fill="#3b82f6" name="NBN Stunden" />
-                </BarChart>
-              </ResponsiveContainer>
-            </Card>
-
-            {/* DAILY TRENDS */}
-            <Typography variant="h5" fontWeight={800} sx={{ mb: 3 }}>
-              Tägliche Auslastungsentwicklung
+      {/* CONTENT */}
+      {!loading && utilData && (
+        <>
+          {/* MAIN BAR CHART */}
+          <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
+            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+              {mode === "hours"
+                ? "Gesamte genutzte Stunden (Top-Down)"
+                : "Auslastung in % (Top-Down)"}
             </Typography>
 
-            {filteredMachines.map((m) => (
-              <Card key={m} sx={{ p: 4, borderRadius: 4, mb: 3 }}>
-                <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
-                  {m}
-                </Typography>
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={barData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="machine" />
+                <YAxis />
+                <RTooltip />
+                <Legend />
 
-                <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={trendData[m]}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <RTooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="hours"
-                      stroke="#3b82f6"
-                      strokeWidth={2}
-                      dot={false}
-                      name="Stunden"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </Card>
-            ))}
-          </>
-        )}
+                {mode === "hours" ? (
+                  <Bar dataKey="hours" fill="#3b82f6" name="Stunden genutzt" />
+                ) : (
+                  <Bar dataKey="pct" fill="#10b981" name="% Auslastung" />
+                )}
 
-        {!loading && !utilData && (
-          <Alert severity="warning">Keine Auslastungsdaten verfügbar.</Alert>
-        )}
-      </Box>
-    </Box>
+                <Bar dataKey="jobs" fill="#f59e0b" name="Auftragsanzahl" />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+
+          {/* BN vs NBN */}
+          <Card sx={{ p: 4, borderRadius: 4, mb: 4 }}>
+            <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+              BN vs. NBN Auslastung (Stunden)
+            </Typography>
+
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={barData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="machine" />
+                <YAxis />
+                <RTooltip />
+                <Legend />
+                <Bar dataKey="bn" fill="#ef4444" name="BN Stunden" />
+                <Bar dataKey="nbn" fill="#3b82f6" name="NBN Stunden" />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+
+          {/* DAILY TRENDS */}
+          <Typography variant="h5" fontWeight={800} sx={{ mb: 3 }}>
+            Tägliche Auslastungsentwicklung
+          </Typography>
+
+          {filteredMachines.map((m) => (
+            <Card key={m} sx={{ p: 4, borderRadius: 4, mb: 3 }}>
+              <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>
+                {m}
+              </Typography>
+
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={trendData[m]}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <RTooltip />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="hours"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Stunden"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </Card>
+          ))}
+        </>
+      )}
+
+      {!loading && !utilData && (
+        <Alert severity="warning">Keine Auslastungsdaten verfügbar.</Alert>
+      )}
+    </PageLayout>
   );
 }

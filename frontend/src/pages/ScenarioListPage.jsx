@@ -16,16 +16,21 @@ import {
   DialogContent,
   DialogTitle,
 } from "@mui/material";
+import {
+  AddCircle,
+  CheckCircle,
+  Delete as DeleteIcon,
+} from "@mui/icons-material";
 
-import { AddCircle, CheckCircle, Delete as DeleteIcon } from "@mui/icons-material";
-
-import { apiGet, apiPostJson } from "../api";
+import { apiPostJson } from "../api";
 import { useScenario } from "../context/ScenarioContext";
+import PageLayout from "../components/PageLayout";
+import { cardPad } from "../theme/layoutTokens";
 
 export default function ScenarioListPage() {
-  const { scenario, setScenario } = useScenario();
+  const { scenario, setScenario, scenarios, setScenarios, refreshScenarios } =
+    useScenario();
 
-  const [scenarios, setScenarios] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [creating, setCreating] = useState(false);
@@ -42,11 +47,11 @@ export default function ScenarioListPage() {
         LOAD SCENARIOS
   ============================== */
   useEffect(() => {
-    apiGet("/scenarios/list")
-      .then((res) => setScenarios(res.scenarios || []))
+    setLoading(true);
+    refreshScenarios()
       .catch(() => setError("Fehler beim Laden der Szenarien"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshScenarios]);
 
   /* =============================
         CREATE SCENARIO
@@ -67,9 +72,19 @@ export default function ScenarioListPage() {
       if (!data.ok) throw new Error(data.error);
 
       setInfo(`Szenario "${data.scenario}" wurde erstellt!`);
-      setScenarios((prev) => [...prev, data.scenario]);
+
+      // ✅ update global list instantly
+      setScenarios((prev) => {
+        const next = prev.includes(data.scenario) ? prev : [...prev, data.scenario];
+        return next;
+      });
+
+      // set active scenario
       setScenario(data.scenario);
       setNewName("");
+
+      // optional: re-sync ordering
+      refreshScenarios().catch(() => {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -86,17 +101,23 @@ export default function ScenarioListPage() {
     try {
       setDeleting(true);
       setError("");
+
       const res = await apiPostJson("/scenarios/delete", {
         name: deleteTarget,
       });
 
-      if (!res.ok) throw new Error(res.error || "Löschen des Szenarios fehlgeschlagen");
+      if (!res.ok)
+        throw new Error(res.error || "Löschen des Szenarios fehlgeschlagen");
 
+      // ✅ update global list instantly
       setScenarios((prev) => prev.filter((s) => s !== deleteTarget));
 
       if (scenario === deleteTarget) setScenario("");
 
       setDeleteTarget(null);
+
+      // optional: re-sync
+      refreshScenarios().catch(() => {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -104,14 +125,11 @@ export default function ScenarioListPage() {
     }
   }
 
-  /* =============================
-             RENDER
-  ============================== */
   return (
     <>
       {/* DELETE CONFIRMATION DIALOG */}
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
-        <DialogTitle sx={{ fontWeight: 700 }}>
+        <DialogTitle sx={{ fontWeight: 800 }}>
           Szenario "{deleteTarget}" löschen?
         </DialogTitle>
 
@@ -139,207 +157,187 @@ export default function ScenarioListPage() {
         </DialogActions>
       </Dialog>
 
-      {/* MAIN PAGE */}
-      <Box
-        sx={{
-          bgcolor: "#f8fafc",
-          minHeight: "calc(100vh - 70px)",
-          display: "flex",
-          justifyContent: "center",
-          px: { xs: 2, sm: 3, md: 4 },
-          py: { xs: 3, md: 4 },
-        }}
+      <PageLayout
+        title="Scheduler-Szenarien"
+        subtitle="Produktionsszenarien erstellen, aktivieren und verwalten"
+        maxWidth={1100}
       >
-        <Box sx={{ width: "100%", maxWidth: 1100 }}>
-          {/* TITLE */}
-          <Typography
-            variant="h4"
-            sx={{
-              fontWeight: 900,
-              textAlign: "center",
-              mb: 1,
-              color: "#0f172a",
-            }}
-          >
-            Scheduler-Szenarien
-          </Typography>
+        {/* CREATE CARD */}
+        <Card
+          sx={{
+            borderRadius: 4,
+            boxShadow: "0 12px 32px rgba(0,0,0,0.08)",
+            mb: { xs: 3, md: 4 },
+          }}
+        >
+          <CardContent sx={{ p: cardPad }}>
+            <Typography
+              sx={{
+                fontWeight: 800,
+                mb: 2,
+                color: "#1e293b",
+                // smaller on small screens, bigger on big screens
+                fontSize: "clamp(1.05rem, 0.95rem + 0.45vw, 1.35rem)",
+              }}
+            >
+              Neues Szenario erstellen
+            </Typography>
 
-          <Typography
-            variant="h6"
-            sx={{
-              textAlign: "center",
-              color: "#64748b",
-              mb: 6,
-            }}
-          >
-            Produktionsszenarien erstellen, aktivieren und verwalten
-          </Typography>
-
-          {/* CREATE CARD */}
-          <Card
-            sx={{
-              borderRadius: 4,
-              boxShadow: "0 12px 32px rgba(0,0,0,0.08)",
-              mb: 6,
-            }}
-          >
-            <CardContent sx={{ p: { xs: 3, md: 5 } }}>
-              <Typography
-                variant="h5"
-                sx={{ fontWeight: 700, mb: 3, color: "#1e293b" }}
-              >
-                Neues Szenario erstellen
-              </Typography>
-
-              <Box
-                component="form"
-                onSubmit={handleCreate}
+            <Box
+              component="form"
+              onSubmit={handleCreate}
+              sx={{
+                display: "flex",
+                flexDirection: { xs: "column", sm: "row" },
+                gap: 2,
+                alignItems: { sm: "center" },
+              }}
+            >
+              <TextField
+                label="Szenarioname"
+                placeholder="z. B. prod_dez2025_v2"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                fullWidth
+                disabled={creating}
+                variant="outlined"
                 sx={{
-                  display: "flex",
-                  flexDirection: { xs: "column", sm: "row" },
-                  gap: 3,
+                  "& .MuiOutlinedInput-root": { borderRadius: 3 },
+                }}
+              />
+
+              <Button
+                type="submit"
+                variant="contained"
+                startIcon={<AddCircle />}
+                disabled={creating || !newName.trim()}
+                sx={{
+                  bgcolor: "#2563eb",
+                  px: 3,
+                  height: 44,
+                  borderRadius: 3,
+                  fontWeight: 800,
+                  whiteSpace: "nowrap",
+                  "&:hover": { bgcolor: "#1d4ed8" },
                 }}
               >
-                <TextField
-                  label="Szenarioname"
-                  placeholder="z. B. prod_dez2025_v2"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  fullWidth
-                  disabled={creating}
-                  variant="outlined"
-                  sx={{
-                    "& .MuiOutlinedInput-root": { borderRadius: 3 },
-                  }}
-                />
+                {creating ? "Erstelle…" : "Erstellen"}
+              </Button>
+            </Box>
 
-                <Button
-                  type="submit"
-                  variant="contained"
-                  size="large"
-                  startIcon={<AddCircle />}
-                  disabled={creating || !newName.trim()}
-                  sx={{
-                    bgcolor: "#3b82f6",
-                    px: 5,
-                    py: 2,
-                    fontSize: "1rem",
-                    borderRadius: 3,
-                    "&:hover": { bgcolor: "#2563eb" },
-                  }}
-                >
-                  {creating ? "Erstelle…" : "Erstellen"}
-                </Button>
-              </Box>
+            {error && (
+              <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>
+                {error}
+              </Alert>
+            )}
+            {info && (
+              <Alert severity="success" sx={{ mt: 2, borderRadius: 2 }}>
+                {info}
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
 
-              {error && (
-                <Alert severity="error" sx={{ mt: 3, borderRadius: 2 }}>
-                  {error}
-                </Alert>
-              )}
-              {info && (
-                <Alert severity="success" sx={{ mt: 3, borderRadius: 2 }}>
-                  {info}
-                </Alert>
-              )}
-            </CardContent>
+        {/* LIST HEADER */}
+        <Typography
+          sx={{
+            fontWeight: 850,
+            color: "#0f172a",
+            mb: 2,
+            fontSize: "clamp(1.05rem, 0.98rem + 0.4vw, 1.4rem)",
+          }}
+        >
+          Vorhandene Szenarien ({scenarios.length})
+        </Typography>
+
+        {loading && (
+          <Card sx={{ p: 6, textAlign: "center", borderRadius: 3 }}>
+            <Typography color="text.secondary">Szenarien werden geladen…</Typography>
           </Card>
+        )}
 
-          {/* SCENARIO LIST */}
-          <Typography
-            variant="h5"
-            sx={{ fontWeight: 700, mb: 3, color: "#1e293b" }}
-          >
-            Vorhandene Szenarien ({scenarios.length})
-          </Typography>
-
-          {loading && (
-            <Card sx={{ p: 10, textAlign: "center" }}>
-              <Typography color="text.secondary">Szenarien werden geladen…</Typography>
-            </Card>
-          )}
-
-          <Grid container spacing={3}>
-            {scenarios.map((s) => (
-              <Grid item xs={12} sm={6} md={4} key={s}>
-                <Card
-                  onClick={() => setScenario(s)}
+        <Grid container spacing={2.5}>
+          {scenarios.map((s) => (
+            <Grid item xs={12} sm={6} md={4} key={s}>
+              <Card
+                onClick={() => setScenario(s)}
+                sx={{
+                  cursor: "pointer",
+                  borderRadius: 4,
+                  position: "relative",
+                  overflow: "visible",
+                  border:
+                    s === scenario ? "2px solid #2563eb" : "2px solid transparent",
+                  bgcolor: s === scenario ? "#eff6ff" : "white",
+                  boxShadow:
+                    s === scenario
+                      ? "0 12px 32px rgba(37,99,235,0.20)"
+                      : "0 8px 18px rgba(0,0,0,0.08)",
+                  transition: "all 0.18s ease",
+                  "&:hover": {
+                    transform: "translateY(-4px)",
+                    boxShadow: "0 16px 28px rgba(0,0,0,0.12)",
+                  },
+                }}
+              >
+                {/* DELETE BUTTON */}
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteTarget(s);
+                  }}
                   sx={{
-                    cursor: "pointer",
-                    borderRadius: 4,
-                    position: "relative",
-                    overflow: "visible",
-                    border:
-                      s === scenario
-                        ? "2px solid #3b82f6"
-                        : "2px solid transparent",
-                    bgcolor: s === scenario ? "#eff6ff" : "white",
-                    boxShadow:
-                      s === scenario
-                        ? "0 12px 32px rgba(59,130,246,0.25)"
-                        : "0 8px 20px rgba(0,0,0,0.08)",
-                    transition: "all 0.25s ease",
-                    "&:hover": {
-                      transform: "translateY(-6px)",
-                      boxShadow: "0 20px 40px rgba(0,0,0,0.15)",
-                    },
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    opacity: 0,
+                    transition: "0.15s",
+                    bgcolor: "white",
+                    "&:hover": { bgcolor: "#fee2e2" },
+                    ".MuiCard-root:hover &": { opacity: 1 },
                   }}
                 >
-                  {/* DELETE BUTTON */}
-                  <IconButton
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteTarget(s);
-                    }}
+                  <DeleteIcon color="error" />
+                </IconButton>
+
+                <CardContent sx={{ textAlign: "center", py: 3.25 }}>
+                  <Typography
                     sx={{
-                      position: "absolute",
-                      top: 8,
-                      right: 8,
-                      opacity: 0,
-                      transition: "0.2s",
-                      bgcolor: "white",
-                      "&:hover": { bgcolor: "#fee2e2" },
-                      ".MuiCard-root:hover &": { opacity: 1 },
+                      fontWeight: 850,
+                      mb: 1.5,
+                      color: "#0f172a",
+                      fontSize: "clamp(1.0rem, 0.95rem + 0.25vw, 1.25rem)",
                     }}
                   >
-                    <DeleteIcon color="error" />
-                  </IconButton>
+                    {s}
+                  </Typography>
 
-                  <CardContent sx={{ textAlign: "center", py: 4 }}>
-                    <Typography
-                      variant="h6"
-                      sx={{ fontWeight: 800, mb: 2, color: "#1e293b" }}
-                    >
-                      {s}
+                  {s === scenario ? (
+                    <Chip
+                      label="AKTIVES SZENARIO"
+                      color="primary"
+                      icon={<CheckCircle />}
+                      sx={{ fontWeight: 800 }}
+                    />
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Zum Aktivieren klicken
                     </Typography>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
 
-                    {s === scenario ? (
-                      <Chip
-                        label="AKTIVES SZENARIO"
-                        color="primary"
-                        icon={<CheckCircle />}
-                        sx={{ fontWeight: 700 }}
-                      />
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        Zum Aktivieren klicken
-                      </Typography>
-                    )}
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-
-          {!loading && scenarios.length === 0 && (
-            <Card sx={{ p: 8, textAlign: "center", mt: 5 }}>
-              <Typography variant="h6" color="text.secondary">
-                Noch keine Szenarien vorhanden. Erstellen Sie oben Ihr erstes Szenario!
-              </Typography>
-            </Card>
-          )}
-        </Box>
-      </Box>
+        {!loading && scenarios.length === 0 && (
+          <Card sx={{ p: 6, textAlign: "center", mt: 3, borderRadius: 3 }}>
+            <Typography sx={{ color: "#64748b", fontWeight: 700 }}>
+              Noch keine Szenarien vorhanden. Erstellen Sie oben Ihr erstes Szenario!
+            </Typography>
+          </Card>
+        )}
+      </PageLayout>
     </>
   );
 }

@@ -33,7 +33,44 @@ from scheduler_state import cancel_flag, active_jobs
 def _iso(ts):
     if ts is None:
         return None
-    return pd.Timestamp(ts).strftime("%Y-%m-%dT%H:%M:%S")
+    t = pd.to_datetime(ts, errors="coerce")
+    if pd.isna(t):
+        return None
+    # treat naive as UTC
+    if t.tzinfo is None:
+        t = t.tz_localize("UTC")
+    else:
+        t = t.tz_convert("UTC")
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def df_to_json_records_safe(df: pd.DataFrame):
+    if df is None or df.empty:
+        return []
+
+    out = df.copy()
+
+    def to_naive_iso(series: pd.Series) -> pd.Series:
+        """Convert to naive ISO format without timezone (no 'Z' suffix)"""
+        s = pd.to_datetime(series, errors="coerce")
+        # If timezone-aware, convert to UTC then remove timezone
+        if getattr(s.dt, "tz", None) is not None:
+            s = s.dt.tz_convert("UTC").dt.tz_localize(None)
+        # Format as naive ISO string (no 'Z')
+        return s.dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+    for col in ["Start", "End", "LatestStartDate", "OutsourcingDelivery"]:
+        if col in out.columns:
+            out[col] = to_naive_iso(out[col])
+
+    # Handle any other datetime64 columns
+    for col in out.columns:
+        if pd.api.types.is_datetime64_any_dtype(out[col]) and col not in ["Start", "End", "LatestStartDate", "OutsourcingDelivery"]:
+            out[col] = to_naive_iso(out[col])
+
+    out = out.where(pd.notna(out), None)
+    return out.to_dict(orient="records")
+
+
 
 # JITTER WEIGHTS (Simulated Annealing)
 def jitter_weights(weights, scale: float):
@@ -57,7 +94,7 @@ def jitter_weights(weights, scale: float):
 
 
 # RUN ONCE
-def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check=None, locked_ops=None,freeze_until=None, freeze_pg2=False):
+def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check=None, locked_ops=None,freeze_until=None, freeze_pg2=False,pinned_starts=None):
     """
     Run one scheduling pass.
     Returns: plan, late, unplaced, score
@@ -87,6 +124,8 @@ def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check
         locked_ops=locked_ops,
         freeze_until=freeze_until,
         freeze_pg2=freeze_pg2,
+        pinned_starts=pinned_starts,
+
     )
 
     # If scheduler was cancelled deep inside and signalled by returning None
@@ -122,9 +161,18 @@ def run_scheduler_with_paths(
     scenario_name=None,
     weights=None,
     progress_callback=None,
+    locked_ops=None,        # <-- ADD
+    pinned_starts=None,     # <-- ADD
+    sa_enabled=None,
+    preview_only=False,
+    now_ts=None
 ):
     cfg = load_scenario_config(scenario_name) if scenario_name else {"mode": "real_time"}
-    now_ts = scenario_now(cfg) if scenario_name else pd.Timestamp.now().floor("min")
+    if now_ts is None:
+        now_ts = scenario_now(cfg) if scenario_name else pd.Timestamp.now().floor("min")
+        now_ts = pd.to_datetime(now_ts, errors="coerce", utc=True).tz_convert(None)
+    else:
+        now_ts = pd.to_datetime(now_ts, errors="coerce", utc=True).tz_convert(None)
     freeze_pg2 = bool(cfg.get("freeze_pg2", False))
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     runs_dir = Path("scenarios") / str(scenario_name) / "runs" / run_id
@@ -151,7 +199,7 @@ def run_scheduler_with_paths(
 
     freeze_anchor = None
     freeze_until = None
-    locked_ops = pd.DataFrame()
+    locked_ops_freeze = pd.DataFrame()
 
     # Try to reuse previous anchored window if still active
     if freeze_h > 0 and latest_meta_path.exists():
@@ -183,7 +231,7 @@ def run_scheduler_with_paths(
         prev_plan["Start"] = pd.to_datetime(prev_plan["Start"], errors="coerce")
         prev_plan["End"] = pd.to_datetime(prev_plan["End"], errors="coerce")
 
-        locked_ops = prev_plan[
+        locked_ops_freeze = prev_plan[
             prev_plan["Start"].notna() & prev_plan["End"].notna() &
             (prev_plan["Start"] <= freeze_until) &
             (prev_plan["End"] >= freeze_anchor)
@@ -191,26 +239,28 @@ def run_scheduler_with_paths(
         # Freeze policy: always freeze PG0/1; PG2 optional (configurable)
         freeze_pg2 = bool(cfg.get("freeze_pg2", False))
 
-        if "PriorityGroup" in locked_ops.columns:
-            locked_ops["PriorityGroup"] = pd.to_numeric(locked_ops["PriorityGroup"], errors="coerce").fillna(2).astype(
-                int)
+        if "PriorityGroup" in locked_ops_freeze.columns:
+            locked_ops_freeze["PriorityGroup"] = pd.to_numeric(
+                locked_ops_freeze["PriorityGroup"], errors="coerce"
+            ).fillna(2).astype(int)
 
             if freeze_pg2:
-                locked_ops = locked_ops[locked_ops["PriorityGroup"].isin([0, 1, 2])].copy()
+                locked_ops_freeze = locked_ops_freeze[locked_ops_freeze["PriorityGroup"].isin([0, 1, 2])].copy()
             else:
-                locked_ops = locked_ops[locked_ops["PriorityGroup"].isin([0, 1])].copy()
+                locked_ops_freeze = locked_ops_freeze[locked_ops_freeze["PriorityGroup"].isin([0, 1])].copy()
+
         else:
             # If PriorityGroup is missing in plan.csv, safest fallback is: freeze everything (or only freeze nothing).
             # I recommend freezing everything to avoid breaking production stability accidentally.
             if not freeze_pg2:
                 print("[FREEZE] WARNING: plan.csv has no PriorityGroup; cannot exclude PG2. Freezing all locked ops.")
 
-    print(f"[FREEZE] freeze_h={freeze_h}, locked_ops_count={len(locked_ops)}")
+    print(f"[FREEZE] freeze_h={freeze_h}, locked_ops_freeze_count={len(locked_ops_freeze)}")
     # Enforce freeze ONLY if we actually have locked ops from a previous released plan.
     # On the first ever run, locked_ops is empty → do NOT shift everything to freeze_until.
     freeze_enforce_until = (
         freeze_until
-        if (freeze_h > 0 and locked_ops is not None and len(locked_ops) > 0)
+        if (freeze_h > 0 and locked_ops_freeze is not None and len(locked_ops_freeze) > 0)
         else None
     )
 
@@ -219,7 +269,7 @@ def run_scheduler_with_paths(
     run_meta["freeze_anchor"] = _iso(freeze_anchor) if freeze_anchor is not None else None
     run_meta["freeze_until"] = _iso(freeze_until) if freeze_until is not None else None
     run_meta["freeze_source"] = "output/plan.csv" if freeze_h > 0 else None
-    run_meta["locked_ops_count"] = int(len(locked_ops)) if freeze_h > 0 else 0
+    run_meta["locked_ops_count"] = int(len(locked_ops_freeze)) if freeze_h > 0 else 0
     # write archived meta for this run (always)
     (run_output_dir / "run_meta.json").write_text(
         json.dumps(run_meta, indent=2),
@@ -288,8 +338,19 @@ def run_scheduler_with_paths(
     base_weights = weights.copy() if weights else DEFAULT_WEIGHTS.copy()
     print(f"[ENGINE] Initial weights: {base_weights}")
 
+    locked_ops_all = None
+
+    if locked_ops is not None and len(locked_ops) > 0:
+        locked_ops_all = locked_ops.copy()
+
+    if locked_ops_freeze is not None and len(locked_ops_freeze) > 0:
+        if locked_ops_all is None:
+            locked_ops_all = locked_ops_freeze.copy()
+        else:
+            locked_ops_all = pd.concat([locked_ops_all, locked_ops_freeze], ignore_index=True)
+
     plan, late, unplaced, score = run_once(
-        jobs, shifts, unlimited, outsourcing, base_weights, now_ts=now_ts, cancel_check=cancel_check, locked_ops=locked_ops, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,
+        jobs, shifts, unlimited, outsourcing, base_weights, now_ts=now_ts, cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,
     )
 
     # If cancelled during first run
@@ -304,9 +365,9 @@ def run_scheduler_with_paths(
 
     update(25)
 
+    use_sa = SA_ENABLED if sa_enabled is None else bool(sa_enabled)
+    if use_sa:
 
-    # SIMULATED ANNEALING LOOP
-    if SA_ENABLED:
         print("[ENGINE] Starting Simulated Annealing...")
         temp = SA_INIT_TEMP
         cur_w = base_weights.copy()
@@ -331,7 +392,7 @@ def run_scheduler_with_paths(
             plan, late, unplaced, sc = run_once(
                 jobs, shifts, unlimited, outsourcing, cand_w,
                 now_ts=now_ts,
-                cancel_check=cancel_check, locked_ops=locked_ops, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,
+                cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,
             )
 
             # If cancelled inside this run
@@ -385,14 +446,29 @@ def run_scheduler_with_paths(
     # WRITE OUTPUT FILES
     print("[ENGINE] Writing output files...")
 
-
-
+    # ✅ CRITICAL FIX: Write CSV with naive timestamps
     plan_path = run_output_dir / "plan.csv"
     late_path = run_output_dir / "late.csv"
     unplaced_path = run_output_dir / "unplaced.csv"
     orders_path = run_output_dir / "orders_delivery.csv"
     summary_csv_path = run_output_dir / "summaryFile.csv"
 
+    # ✅ Strip timezone before writing
+    if not best_plan.empty:
+        for col in ["Start", "End", "LatestStartDate", "OutsourcingDelivery"]:
+            if col in best_plan.columns:
+                best_plan[col] = pd.to_datetime(best_plan[col], errors="coerce")
+                if best_plan[col].dt.tz is not None:
+                    best_plan[col] = best_plan[col].dt.tz_localize(None)
+
+    if not best_late.empty:
+        for col in ["Start", "End", "LatestStartDate", "Allowed"]:
+            if col in best_late.columns:
+                best_late[col] = pd.to_datetime(best_late[col], errors="coerce")
+                if best_late[col].dt.tz is not None:
+                    best_late[col] = best_late[col].dt.tz_localize(None)
+
+    # ✅ Write with explicit format (no timezone)
     best_plan.to_csv(plan_path, index=False, date_format="%Y-%m-%d %H:%M:%S")
     best_late.to_csv(late_path, index=False, date_format="%Y-%m-%d %H:%M:%S")
     best_unplaced.to_csv(unplaced_path, index=False)
@@ -443,6 +519,9 @@ def run_scheduler_with_paths(
             publish = (best_score is not None and float(best_score) > float(prev_score))
             print(f"[PUBLISH] Compare scores: new={best_score:.6f} vs old={prev_score:.6f} → publish={publish}")
 
+    if preview_only:
+        publish = False
+
     if publish:
         # write the released meta (now it matches released plan)
         (latest_dir / "run_meta.json").write_text(
@@ -476,6 +555,8 @@ def run_scheduler_with_paths(
         "unplaced": str(unplaced_path),
         "orders_delivery": str(orders_path),
         "summary": str(summary_csv_path),
+        "plan_records": df_to_json_records_safe(best_plan),
+
     }
 
 

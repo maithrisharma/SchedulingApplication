@@ -1,6 +1,7 @@
 // src/pages/DeliveryReportPage.jsx — GERMAN UI VERSION
 
 import { useEffect, useState, useMemo } from "react";
+import PageLayout from "../components/PageLayout";
 import {
   Box,
   Card,
@@ -298,40 +299,17 @@ export default function DeliveryReportPage() {
 
   return (
     <ThemeProvider theme={gridTheme}>
-      <Box sx={{ p: 4, bgcolor: "#f1f5f9", minHeight: "100vh" }}>
+      <PageLayout title="Lieferreport" maxWidth={1600}>
+      <Card
+        sx={{
+          borderRadius: 4,
+          boxShadow: "0 12px 32px rgba(0,0,0,0.08)",
+        }}
+      >
+        <CardContent sx={{ p: 4 }}>
+          {/* keep everything inside exactly the same */}
+            <Stack direction="row" justifyContent="flex-end" alignItems="center" mb={3}>
 
-        <Typography variant="h4" align="center" fontWeight="bold" gutterBottom>
-          Lieferreport
-        </Typography>
-
-        <Typography align="center" color="text.secondary" mb={4}>
-          Szenario:{" "}
-          <strong style={{ color: "#2563eb" }}>{scenario || "-"}</strong>
-        </Typography>
-
-        <Card sx={{ borderRadius: 3, boxShadow: 8 }}>
-          <CardContent sx={{ p: 4 }}>
-            {/* TOP BAR */}
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-              <Select
-                value={scenario || ""}
-                onChange={(e) => setScenario(e.target.value)}
-                displayEmpty
-                sx={{
-                  minWidth: 300,
-                  bgcolor: "white",
-                  borderRadius: 2,
-                  ".MuiOutlinedInput-input": { py: 1.5 },
-                }}
-              >
-                <MenuItem value="" disabled>
-                  <em>Szenario auswählen</em>
-                </MenuItem>
-
-                {scenarioList.map((s) => (
-                  <MenuItem key={s} value={s}>{s}</MenuItem>
-                ))}
-              </Select>
 
               <Stack direction="row" spacing={2}>
                 <Button
@@ -754,7 +732,7 @@ export default function DeliveryReportPage() {
             </Box>
           </Box>
         </Popover>
-      </Box>
+      </PageLayout>
     </ThemeProvider>
   );
 }
