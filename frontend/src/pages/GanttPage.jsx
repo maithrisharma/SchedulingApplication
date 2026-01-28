@@ -394,6 +394,7 @@ const discardCandidate = async () => {
           <GanttChart
             key={scenario + JSON.stringify(filters)}
             data={filteredPlan}
+            allJobs={candidatePlan ?? draftPlan}
             machineOrder={machineOrder}
             setDraftPlan={setDraftPlan}
             onIllegalMove={(msg) => setToast({ open: true, msg })}

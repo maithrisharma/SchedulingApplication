@@ -453,7 +453,7 @@ def generate_candidate(scenario_name):
         if active_jobs.get(scenario, False):
             return jsonify({"ok": False, "error": "Scheduler already running"}), 409
 
-    # ---- load baseline plan (to lock stable prefix if you want) ----
+    # ---- load baseline plan ----
     df_plan = pd.read_csv(plan_file)
     df_plan = df_plan.where(pd.notna(df_plan), None)
     df_plan = _parse_plan_times(df_plan)
@@ -474,10 +474,14 @@ def generate_candidate(scenario_name):
     # ✅ CRITICAL FIX: Ensure now_ts is timezone-naive
     now_ts = pd.to_datetime(now_ts, errors="coerce")
     if pd.notna(now_ts) and now_ts.tzinfo is not None:
-        # Convert to UTC then drop timezone
         now_ts = now_ts.tz_convert(None)
 
-    print(f"[GEN] now_ts={now_ts} (type={type(now_ts)}, tz={getattr(now_ts, 'tzinfo', None)})")
+    # ✅ CRITICAL FIX: Ensure df_plan datetime columns are naive
+    for col in ["Start", "End"]:
+        if col in df_plan.columns:
+            df_plan[col] = pd.to_datetime(df_plan[col], errors="coerce")
+            if df_plan[col].dt.tz is not None:
+                df_plan[col] = df_plan[col].dt.tz_convert(None)
 
     # ---- paths to cleaned inputs ----
     cleaned = base / "cleaned"
@@ -492,43 +496,84 @@ def generate_candidate(scenario_name):
     if missing:
         return jsonify({"ok": False, "error": "Missing cleaned files", "missing": missing}), 400
 
-    # ✅ CRITICAL FIX: Ensure df_plan datetime columns are naive
-    for col in ["Start", "End"]:
-        if col in df_plan.columns:
-            df_plan[col] = pd.to_datetime(df_plan[col], errors="coerce")
-            # If timezone-aware, convert to naive
-            if df_plan[col].dt.tz is not None:
-                df_plan[col] = df_plan[col].dt.tz_convert(None)
-
-    print(f"[GEN] df_plan['End'].dtype={df_plan['End'].dtype if 'End' in df_plan.columns else 'N/A'}")
-
-    # OPTIONAL: lock everything up to now_ts as stable prefix
-    locked_ops = df_plan[
-        df_plan["Start"].notna() &
-        df_plan["End"].notna() &
-        (df_plan["End"] <= now_ts)  # ✅ Now both are naive, comparison works!
-        ].copy()
-
-    # ---- read overrides (you probably store them already in output dir) ----
-    # If you already implement overrides saving, load them here.
-    # Example: output/overrides.json with { "changes": [...] }
+    # ✅ NEW: Load overrides to compute affected set
     overrides_path = base_out / "overrides.json"
     pinned_starts = {}
+    affected = set()
 
     if overrides_path.exists():
         try:
             obj = json.loads(overrides_path.read_text("utf-8"))
-            for ch in (obj.get("changes") or []):
-                jid = str(ch.get("job_id", "")).strip()
-                st = pd.to_datetime(ch.get("Start"), errors="coerce")
+            changes = obj.get("changes") or []
 
-                # ✅ CRITICAL FIX: Ensure pinned_starts are naive
-                if pd.notna(st):
-                    if st.tzinfo is not None:
-                        st = st.tz_convert(None)
-                    pinned_starts[jid] = st
+            if changes:
+                # Load dependency graph
+                jobs, shifts, unlimited, outsourcing, *_ = load_cleaned_inputs(
+                    required_files["jobs_clean.csv"],
+                    required_files["shifts_clean.csv"],
+                    required_files["unlimited_machines.csv"],
+                    required_files["outsourcing_machines.csv"],
+                    now_ts
+                )
+                _, succ_multi = build_dependency_graph(jobs)
+
+                # Process each override
+                for ch in changes:
+                    jid = str(ch.get("job_id", "")).strip()
+                    if not jid:
+                        continue
+
+                    st = pd.to_datetime(ch.get("Start"), errors="coerce")
+                    if pd.notna(st):
+                        if st.tzinfo is not None:
+                            st = st.tz_convert(None)
+                        pinned_starts[jid] = st
+
+                    # Get baseline row
+                    row = df_plan[df_plan["job_id"] == jid]
+                    if row.empty:
+                        continue
+
+                    baseline_start = row["Start"].iloc[0]
+                    wp = row["WorkPlaceNo"].iloc[0]
+
+                    # Add to affected: target job
+                    affected.add(jid)
+
+                    # Add: same machine jobs starting at or after baseline cutoff
+                    same_wp_after = df_plan[
+                        (df_plan["WorkPlaceNo"] == wp) &
+                        (df_plan["Start"].notna()) &
+                        (df_plan["Start"] >= baseline_start)
+                    ]["job_id"].tolist()
+                    affected.update(same_wp_after)
+
+                    # Add: transitive closure of successors
+                    affected.update(_successor_closure({jid}, succ_multi))
+
+                print(f"[GEN] Computed affected set: {len(affected)} jobs from {len(changes)} overrides")
+
         except Exception as e:
-            print("[GEN] could not read overrides.json:", e)
+            print(f"[GEN] Error processing overrides: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # ✅ COMPUTE LOCKED OPS: everything NOT in affected set
+    if affected:
+        locked_ops = df_plan[
+            df_plan["Start"].notna() &
+            df_plan["End"].notna() &
+            (~df_plan["job_id"].isin(affected))
+        ].copy()
+        print(f"[GEN] Locking {len(locked_ops)} stable jobs (affected={len(affected)})")
+    else:
+        # No overrides → lock everything up to now_ts (original behavior)
+        locked_ops = df_plan[
+            df_plan["Start"].notna() &
+            df_plan["End"].notna() &
+            (df_plan["End"] <= now_ts)
+        ].copy()
+        print(f"[GEN] No overrides → locking {len(locked_ops)} jobs ending before now_ts")
 
     res = run_scheduler_with_paths(
         required_files["jobs_clean.csv"],
@@ -557,6 +602,7 @@ def generate_candidate(scenario_name):
         "scenario": scenario,
         "candidate_ready": True,
         "locked_ops_count": int(len(locked_ops)),
+        "affected_count": int(len(affected)),
         "pins_count": int(len(pinned_starts)),
         "plan": (res or {}).get("plan_records", []) or [],
         "engine_result": {

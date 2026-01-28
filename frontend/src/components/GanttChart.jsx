@@ -78,6 +78,7 @@ const getBarColor = (job, isChanged = false) => {
 
 export default function GanttChart({
   data,
+  allJobs = [],
   machineOrder = [],
   setDraftPlan,
   onIllegalMove,
@@ -155,6 +156,26 @@ export default function GanttChart({
     const seconds = String(date.getSeconds()).padStart(2, '0');
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
   };
+const jobById = useMemo(() => {
+  const m = new Map();
+  for (const r of (allJobs ?? [])) {
+    const id = String(r?.job_id ?? r?.jobId ?? "").trim();
+    if (id) m.set(id, r);
+  }
+  return m;
+}, [allJobs]);
+
+const [invalidById, setInvalidById] = useState({});
+const setInvalid = useCallback((jobId, isInvalid) => {
+  const k = String(jobId);
+  setInvalidById(prev => {
+    if (!!prev[k] === !!isInvalid) return prev;
+    const next = { ...prev };
+    if (isInvalid) next[k] = true;
+    else delete next[k];
+    return next;
+  });
+}, []);
 
   /* -----------------------------
      Resize Observer
@@ -181,6 +202,7 @@ export default function GanttChart({
         dragRef.current = null;
         setIsDraggingBar(false);
         clearGhostMachine(d.jobId);
+        setInvalid(d.jobId, false);
         dragMovedRef.current = false;
       }
     };
@@ -192,7 +214,7 @@ export default function GanttChart({
       window.removeEventListener("mouseup", handleGlobalMouseUp);
       window.removeEventListener("mouseleave", handleGlobalMouseUp);
     };
-  }, [clearGhostMachine]);
+  }, [clearGhostMachine, setInvalid]);
 
   /* -----------------------------
      Parse data
@@ -373,6 +395,29 @@ export default function GanttChart({
       const dur = d.baseEndMs - d.baseStartMs;
       const newStartMs = snapMs(d.baseStartMs + shiftMs);
       const newEndMs = newStartMs + dur;
+      const predIds = d.predIds || [];
+let invalidPreds = [];
+
+if (predIds.length > 0) {
+  for (const pid of predIds) {
+    const pred = jobById.get(String(pid));
+    if (!pred?.End) continue; // if missing, don't block
+
+    const predEndMs = new Date(pred.End).getTime();
+    if (Number.isFinite(predEndMs) && predEndMs > newStartMs) {
+      invalidPreds.push({ pid: String(pid), predEndMs });
+    }
+  }
+}
+
+// store on dragRef
+d.lastStartMs = newStartMs;
+d.lastEndMs = newEndMs;
+d.invalidPreds = invalidPreds;
+
+// red preview border if invalid
+setInvalid(d.jobId, invalidPreds.length > 0);
+
 
       // only time moves in draftPlan
       setDraftPlan?.((prev) =>
@@ -393,6 +438,35 @@ export default function GanttChart({
 
       dragRef.current = null;
       setIsDraggingBar(false);
+            // ✅ PREDECESSOR VALIDATION: block drop if any predecessor ends after new start
+      if (d.invalidPreds && d.invalidPreds.length > 0) {
+        const first = d.invalidPreds[0];
+        onIllegalMove?.(
+          `Nicht möglich: Vorgänger ${first.pid} endet nach dem Start.`
+        );
+
+        // revert to original time
+        setDraftPlan?.((prev) =>
+          prev.map((r) => {
+            if (getId(r) !== String(d.jobId)) return r;
+            return {
+              ...r,
+              Start: formatNaive(d.origStartMs),
+              End: formatNaive(d.origEndMs),
+            };
+          })
+        );
+
+        setInvalid(d.jobId, false);
+        clearGhostMachine(d.jobId);
+
+        setTimeout(() => {
+          dragMovedRef.current = false;
+        }, 0);
+
+        return; // ✅ IMPORTANT: stop here, do not continue with machine check
+      }
+
 
       const changedMachine = d.lastMachine && d.lastMachine !== d.origMachine;
 
@@ -411,8 +485,10 @@ export default function GanttChart({
             };
           })
         );
-      }
+        setInvalid(d.jobId, false);   // ✅ clear red border after valid drop
 
+      }
+      setInvalid(d.jobId, false);
       clearGhostMachine(d.jobId);
 
       setTimeout(() => {
@@ -439,6 +515,8 @@ export default function GanttChart({
     setGhostMachine,
     onIllegalMove,
     formatNaive,
+    jobById,     // ✅ add
+    setInvalid,  // ✅ add
   ]);
 
   /* -----------------------------
@@ -660,6 +738,8 @@ export default function GanttChart({
               const x2 = xScale(job.End);
 
               const jobIdStr = String(job.job_id ?? job.jobId);
+              const isInvalid = !!invalidById[jobIdStr];
+
               const renderMachine = ghostMachineById[jobIdStr] ?? job.Machine;
               const y = yScale(renderMachine);
 
@@ -679,6 +759,12 @@ let baseFill = colors.fill;
 let borderColor = colors.stroke;
 let strokeWidth = colors.strokeWidth;
 let strokeDasharray = colors.strokeDasharray;
+if (isInvalid) {
+  borderColor = "#dc2626";     // red
+  strokeWidth = 3;
+  strokeDasharray = "none";
+}
+
 
 if (highlightOrder) {
   const isSelected = String(job.OrderNo) === String(highlightOrder);
@@ -753,6 +839,11 @@ const barOpacity = hasCandidate ? 0.7 : 1;
                         lastMachine: job.Machine,
                         clientX0: e.clientX,
                         clientY0: e.clientY,
+                        predIds: Array.isArray(job.PredIds) ? job.PredIds.map(String) : [],
+                        invalidPreds: [],
+                        lastStartMs: job.Start.getTime(),
+                        lastEndMs: job.End.getTime(),
+
                       };
                     }}
                     onPointerEnter={(e) => {

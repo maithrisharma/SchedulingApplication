@@ -26,7 +26,7 @@ def normalize_wp(s):
 
 def load_cleaned_inputs(jobs_path, shifts_path, unlimited_path, outsourcing_path, now_ts):
 
-    print("Loading CSVs…")
+
     jobs = pd.read_csv(jobs_path)
     shifts = pd.read_csv(shifts_path)
     now_ts = pd.Timestamp(now_ts).floor("min")
@@ -124,7 +124,7 @@ def load_cleaned_inputs(jobs_path, shifts_path, unlimited_path, outsourcing_path
         .astype(str)
         .str.contains(r"[\u2010-\u2015–—‒]", regex=True)
     ]
-    print("hidden/dash variants after normalization:", bad.shape[0])
+
 
     # machine sets (now from explicit files)
     try:

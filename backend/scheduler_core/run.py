@@ -132,7 +132,7 @@ def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check
     if plan is None or late is None or unplaced is None:
         print("[RUN_ONCE] schedule() returned None → treat as CANCEL")
 
-        return None, None, None, None
+        return None, None, None, None, None
 
     if not plan.empty:
         plan["Duration"] = (
@@ -147,7 +147,7 @@ def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check
         - 1.0 * kpis.get("beyond_7d", 0.0)
     )
 
-    return plan, late, unplaced, score
+    return plan, late, unplaced, score, pred_sets
 
 
 
@@ -349,7 +349,7 @@ def run_scheduler_with_paths(
         else:
             locked_ops_all = pd.concat([locked_ops_all, locked_ops_freeze], ignore_index=True)
 
-    plan, late, unplaced, score = run_once(
+    plan, late, unplaced, score, pred_sets = run_once(
         jobs, shifts, unlimited, outsourcing, base_weights, now_ts=now_ts, cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,
     )
 
@@ -389,7 +389,7 @@ def run_scheduler_with_paths(
                 return early_cancel()
 
             cand_w = jitter_weights(cur_w, SA_STEP_SCALE)
-            plan, late, unplaced, sc = run_once(
+            plan, late, unplaced, sc, pred_sets_iter = run_once(
                 jobs, shifts, unlimited, outsourcing, cand_w,
                 now_ts=now_ts,
                 cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,
@@ -424,6 +424,7 @@ def run_scheduler_with_paths(
                     unplaced,
                     sc,
                 )
+                pred_sets = pred_sets_iter
                 print(f"[SA] NEW BEST SCORE: {best_score}")
 
             update(30 + int((it / SA_ITERS) * 50))
@@ -546,7 +547,13 @@ def run_scheduler_with_paths(
         print(f"[ENGINE] cancel_flag[{scenario_name}] cleared after finish")
 
     print(f"===== [ENGINE] Finished scheduler for {scenario_name} =====\n")
+    records = df_to_json_records_safe(best_plan)
 
+    # add predecessors only to JSON (not to CSV)
+    if pred_sets is not None:
+        for r in records:
+            jid = str(r.get("job_id") or "").strip()
+            r["PredIds"] = sorted(list(pred_sets.get(jid, set())))
     return {
         "run_id": run_id,
         "run_dir": str(run_output_dir),
@@ -555,7 +562,7 @@ def run_scheduler_with_paths(
         "unplaced": str(unplaced_path),
         "orders_delivery": str(orders_path),
         "summary": str(summary_csv_path),
-        "plan_records": df_to_json_records_safe(best_plan),
+        "plan_records": records,
 
     }
 

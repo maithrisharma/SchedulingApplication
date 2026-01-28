@@ -3,6 +3,9 @@ from flask import Blueprint, jsonify, request
 from pathlib import Path
 import pandas as pd
 import traceback
+from scheduler_core.io import load_cleaned_inputs
+from scheduler_core.precedence import build_dependency_graph
+from scheduler_core.scenario_config import load_scenario_config, scenario_now
 
 visualize_bp = Blueprint("visualize", __name__, url_prefix="/api/visualize")
 
@@ -27,6 +30,51 @@ def pick_output_file(base: Path, filename: str) -> Path:
             return cand
 
     return base / filename
+
+def attach_pred_ids(scenario: str, plan_records: list[dict]) -> list[dict]:
+    """
+    Adds PredIds to each plan record using cleaned inputs.
+    Does NOT modify plan.csv. Only enriches JSON response.
+    """
+    if not plan_records:
+        return plan_records
+
+    try:
+        base = Path("scenarios") / scenario
+        cleaned = base / "cleaned"
+
+        cfg = load_scenario_config(scenario) if scenario else {"mode": "real_time"}
+        now_ts = pd.to_datetime(scenario_now(cfg), errors="coerce")
+        if pd.notna(now_ts) and now_ts.tzinfo is not None:
+            now_ts = now_ts.tz_convert(None)
+
+        jobs_clean = cleaned / "jobs_clean.csv"
+        shifts_clean = cleaned / "shifts_clean.csv"
+        unlimited = cleaned / "unlimited_machines.csv"
+        outsourcing = cleaned / "outsourcing_machines.csv"
+
+        if not (jobs_clean.exists() and shifts_clean.exists() and unlimited.exists() and outsourcing.exists()):
+            return plan_records
+
+        jobs, shifts, unlim, outs, *_ = load_cleaned_inputs(
+            jobs_clean, shifts_clean, unlimited, outsourcing, now_ts
+        )
+
+        pred_sets, _ = build_dependency_graph(jobs)
+
+        out = []
+        for r in plan_records:
+            rr = dict(r)
+            jid = str(rr.get("job_id") or rr.get("jobId") or "").strip()
+            rr["PredIds"] = sorted(list(pred_sets.get(jid, set())))
+            out.append(rr)
+
+        return out
+
+    except Exception as e:
+        print("[VISUALIZE] attach_pred_ids failed:", e)
+        print(traceback.format_exc())
+        return plan_records
 
 
 # Helper: Read CSV safely and sanitize NaN → None
@@ -217,6 +265,8 @@ def get_visualization_data(scenario):
 
             # Now replace any remaining NaN/None
             plan = df_plan.where(pd.notna(df_plan), None).to_dict(orient="records")
+            plan = attach_pred_ids(scenario, plan)
+
         else:
             machines = []
             util_pct = {}

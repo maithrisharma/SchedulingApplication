@@ -113,6 +113,9 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
     locked_ids = set()
     locked_plan_rows = []
 
+    def _is_locked(jid):
+        return str(jid).strip() in locked_ids
+
     if locked_ops is not None and len(locked_ops) > 0:
         locked_df = locked_ops.copy()
 
@@ -154,8 +157,7 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
         locked_ids = set(locked_df["job_id"].tolist())
         print(f"[FREEZE] Applying locks: {len(locked_ids)} ops")
 
-        def _is_locked(jid):
-            return str(jid).strip() in locked_ids
+
 
         # Helper: subtract [a,b) from a machine's windows
         def _subtract_interval(wdf, a, b):
