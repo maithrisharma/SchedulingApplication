@@ -90,7 +90,7 @@ def heap_key(row, earliest_ts, cont_same_machine, weights, now_ts):
 
 
 def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set, weights, now_ts, cancel_check=None,
-             locked_ops=None, freeze_until=None, freeze_pg2=False, pinned_starts=None):
+             locked_ops=None, freeze_until=None, freeze_pg2=False, pinned_starts=None, skip_os5_seeding=False):
     pinned_starts = pinned_starts or {}
 
     def _to_naive_utc(x):
@@ -230,19 +230,10 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
     # jobs map
     jobdict = {str(r["job_id"]).strip(): r for _, r in jobs.iterrows()}
 
-    print(f"Pre-normalizing {len(jobdict)} job fields...")
-    for jid, r in jobdict.items():
-        if cancel_check and cancel_check():
-            return None, None, None
-        r['_wpU'] = str(r.get("WorkPlaceNo", "")).strip().upper()
-        r['_wp'] = str(r.get("WorkPlaceNo", "")).strip()
-        r['_pg'] = to_int(r.get("PriorityGroup"), 2)
-        r['_os'] = to_int(r.get("Orderstate"), 0)
-        r['_dur'] = to_int_nonneg(r.get("duration_min"), 0)
-        r['_buf'] = to_int_nonneg(r.get("buffer_min"), 0)
-        r['_rec'] = to_int(r.get("RecordType"), 0)
-        r['_pos'] = to_int(r.get("OrderPos"), 0)
-    print("Pre-normalization complete")
+    # Pre-normalized fields already exist in DataFrame (done once in run.py)
+    # Just verify they're present for debugging
+    if '_wpU' not in jobdict[next(iter(jobdict))]:
+        print("[WARNING] Pre-normalized fields missing! This shouldn't happen.")
 
     # indegree init
     indeg = {jid: len(pred_sets.get(jid, set())) for jid in jobdict.keys()}
@@ -727,48 +718,53 @@ def schedule(jobs, shifts, pred_sets, succ_multi, unlimited_set, outsourcing_set
     _precompute_os5_remaining_job()
 
     # ================= EARLY OS5 PREDICTION SEEDING =================
-    print("Seeding early OS5 predictions...")
+    if not skip_os5_seeding:
+        print("Seeding early OS5 predictions...")
 
-    # Seed base ETA for every OS5 job first
-    for wpU, tgts in os5_targets_by_wp.items():
-        if cancel_check and cancel_check():
-            return None, None, None
-        for os5_jid in tgts:
-            row_os5 = jobdict[os5_jid]
-            os5_eta_by_job[os5_jid] = earliest_start_for(os5_jid, row_os5)
-        recompute_wp_os5_eta(wpU)
+        # Seed base ETA for every OS5 job first
+        for wpU, tgts in os5_targets_by_wp.items():
+            if cancel_check and cancel_check():
+                return None, None, None
+            for os5_jid in tgts:
+                row_os5 = jobdict[os5_jid]
+                os5_eta_by_job[os5_jid] = earliest_start_for(os5_jid, row_os5)
+            recompute_wp_os5_eta(wpU)
 
-    # Then seed predictions from ready upstream jobs
-    for upstream_jid in os5_pred_to_jobs.keys():
-        if cancel_check and cancel_check():
-            return None, None, None
-        if indeg.get(upstream_jid, 0) != 0:
-            continue
-
-        row_up = jobdict.get(upstream_jid)
-        if row_up is None:
-            continue
-
-        est0 = earliest_start_for(upstream_jid, row_up)
-        end0 = _rough_end_for_prediction(upstream_jid, row_up, est0)
-
-        for os5_jid in os5_pred_to_jobs.get(upstream_jid, ()):
-            rem = os5_remaining_minutes_job.get((upstream_jid, os5_jid))
-            if rem is None:
+        # Then seed predictions from ready upstream jobs
+        for upstream_jid in os5_pred_to_jobs.keys():
+            if cancel_check and cancel_check():
+                return None, None, None
+            if indeg.get(upstream_jid, 0) != 0:
                 continue
 
-            cand = end0 + pd.Timedelta(minutes=int(rem))
-            prevj = os5_eta_by_job.get(os5_jid, pd.NaT)
+            row_up = jobdict.get(upstream_jid)
+            if row_up is None:
+                continue
 
-            if pd.isna(prevj) or cand > prevj:
-                os5_eta_by_job[os5_jid] = cand
+            est0 = earliest_start_for(upstream_jid, row_up)
+            end0 = _rough_end_for_prediction(upstream_jid, row_up, est0)
 
-                wpU = str(jobdict[os5_jid].get("WorkPlaceNo", "")).strip().upper()
-                if wpU and wpU != "TBA":
-                    recompute_wp_os5_eta(wpU)
-                    dirty_best_wps.add(wpU)
+            for os5_jid in os5_pred_to_jobs.get(upstream_jid, ()):
+                rem = os5_remaining_minutes_job.get((upstream_jid, os5_jid))
+                if rem is None:
+                    continue
 
-    print(f"Seeded {len(os5_eta_by_job)} OS5 jobs")
+                cand = end0 + pd.Timedelta(minutes=int(rem))
+                prevj = os5_eta_by_job.get(os5_jid, pd.NaT)
+
+                if pd.isna(prevj) or cand > prevj:
+                    os5_eta_by_job[os5_jid] = cand
+
+                    wpU = str(jobdict[os5_jid].get("WorkPlaceNo", "")).strip().upper()
+                    if wpU and wpU != "TBA":
+                        recompute_wp_os5_eta(wpU)
+                        dirty_best_wps.add(wpU)
+
+        print(f"Seeded {len(os5_eta_by_job)} OS5 jobs")
+    else:
+        print("OS5 seeding skipped (not first iteration)")
+
+    # ===============================================================
 
     # ===============================================================
 

@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 from datetime import datetime
 import shutil
-
+import time
 import pandas as pd  # helpful for debugging
 
 from .config import (
@@ -94,7 +94,7 @@ def jitter_weights(weights, scale: float):
 
 
 # RUN ONCE
-def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check=None, locked_ops=None,freeze_until=None, freeze_pg2=False,pinned_starts=None):
+def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check=None, locked_ops=None,freeze_until=None, freeze_pg2=False,pinned_starts=None, is_first_run=False):
     """
     Run one scheduling pass.
     Returns: plan, late, unplaced, score
@@ -125,6 +125,7 @@ def run_once(jobs, shifts, unlimited, outsourcing, weights, now_ts, cancel_check
         freeze_until=freeze_until,
         freeze_pg2=freeze_pg2,
         pinned_starts=pinned_starts,
+        skip_os5_seeding=(not is_first_run),
 
     )
 
@@ -326,6 +327,18 @@ def run_scheduler_with_paths(
 
     print(f"[ENGINE] Loaded inputs: {len(jobs)} jobs, {len(shifts)} shifts")
 
+    # ✅ PRE-NORMALIZE DATAFRAME ONCE (will be reused across all 45 iterations!)
+    print(f"[ENGINE] Pre-normalizing {len(jobs)} jobs in DataFrame (one-time operation)...")
+    jobs['_wpU'] = jobs['WorkPlaceNo'].astype(str).str.strip().str.upper()
+    jobs['_wp'] = jobs['WorkPlaceNo'].astype(str).str.strip()
+    jobs['_pg'] = pd.to_numeric(jobs['PriorityGroup'], errors='coerce').fillna(2).astype(int)
+    jobs['_os'] = pd.to_numeric(jobs['Orderstate'], errors='coerce').fillna(0).astype(int)
+    jobs['_dur'] = pd.to_numeric(jobs['duration_min'], errors='coerce').fillna(0).astype(int).clip(lower=0)
+    jobs['_buf'] = pd.to_numeric(jobs['buffer_min'], errors='coerce').fillna(0).astype(int).clip(lower=0)
+    jobs['_rec'] = pd.to_numeric(jobs['RecordType'], errors='coerce').fillna(0).astype(int)
+    jobs['_pos'] = pd.to_numeric(jobs['OrderPos'], errors='coerce').fillna(0).astype(int)
+    print("[ENGINE] Pre-normalization complete (DataFrame columns added)")
+
     update(10)
 
     if scenario_name and cancel_flag.get(scenario_name):
@@ -350,7 +363,7 @@ def run_scheduler_with_paths(
             locked_ops_all = pd.concat([locked_ops_all, locked_ops_freeze], ignore_index=True)
 
     plan, late, unplaced, score, pred_sets = run_once(
-        jobs, shifts, unlimited, outsourcing, base_weights, now_ts=now_ts, cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,
+        jobs, shifts, unlimited, outsourcing, base_weights, now_ts=now_ts, cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,is_first_run=True,
     )
 
     # If cancelled during first run
@@ -379,6 +392,7 @@ def run_scheduler_with_paths(
         )
 
         for it in range(SA_ITERS):
+            iter_start = time.time()
             print(f"[SA] Iter {it+1}/{SA_ITERS}, Temp={temp:.3f}")
 
             # CHECK FOR CANCELLATION
@@ -392,8 +406,10 @@ def run_scheduler_with_paths(
             plan, late, unplaced, sc, pred_sets_iter = run_once(
                 jobs, shifts, unlimited, outsourcing, cand_w,
                 now_ts=now_ts,
-                cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,
+                cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,is_first_run=False,
             )
+            iter_time = time.time() - iter_start
+            print(f"[SA] Iter {it + 1} completed in {iter_time:.1f}s (score={sc:.2f})")
 
             # If cancelled inside this run
             if plan is None:

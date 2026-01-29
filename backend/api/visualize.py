@@ -798,6 +798,159 @@ def get_order_routing(scenario, order_no):
         "operations": operations
     })
 
+
+@visualize_bp.get("/<scenario>/kpi-comparison")
+def get_kpi_comparison(scenario):
+    """
+    Compare baseline vs candidate KPIs for decision-making.
+    Returns delta metrics with improvement indicators.
+    """
+    base = Path("scenarios") / scenario / "output"
+
+    baseline_summary = base / "summaryFile.csv"
+    candidate_summary = base / f"summaryFile{CANDIDATE_SUFFIX}.csv"
+
+    baseline_late = base / "late.csv"
+    candidate_late = base / f"late{CANDIDATE_SUFFIX}.csv"
+
+    if not candidate_summary.exists():
+        return jsonify({"ok": False, "error": "No candidate plan available"}), 404
+
+    def load_summary(path):
+        if not path.exists():
+            return {}
+        df = pd.read_csv(path)
+        df["Metric"] = df["Metric"].astype(str).str.strip()
+        df["Value_num"] = pd.to_numeric(df["Value"], errors="coerce")
+        return dict(zip(df["Metric"], df["Value_num"]))
+
+    def safe_get(d, key, default=0):
+        val = d.get(key, default)
+        return default if pd.isna(val) else float(val)
+
+    baseline = load_summary(baseline_summary)
+    candidate = load_summary(candidate_summary)
+
+    # Core KPIs
+    comparison = {
+        "on_time": {
+            "baseline": safe_get(baseline, "% On time (Start <= LSD)"),
+            "candidate": safe_get(candidate, "% On time (Start <= LSD)"),
+        },
+        "within_2d": {
+            "baseline": safe_get(baseline, "% Within 2 days grace"),
+            "candidate": safe_get(candidate, "% Within 2 days grace"),
+        },
+        "beyond_7d": {
+            "baseline": safe_get(baseline, "% Beyond 7 days grace"),
+            "candidate": safe_get(candidate, "% Beyond 7 days grace"),
+        },
+        "late_jobs": {
+            "baseline": safe_get(baseline, "Late jobs (beyond configured grace)"),
+            "candidate": safe_get(candidate, "Late jobs (beyond configured grace)"),
+        },
+        "unplaced": {
+            "baseline": safe_get(baseline, "Unplaced jobs"),
+            "candidate": safe_get(candidate, "Unplaced jobs"),
+        },
+        "scheduled": {
+            "baseline": safe_get(baseline, "Scheduled jobs"),
+            "candidate": safe_get(candidate, "Scheduled jobs"),
+        },
+        "saved_pct": {
+            "baseline": safe_get(baseline, "Saved"),
+            "candidate": safe_get(candidate, "Saved"),
+        },
+    }
+
+    # Compute deltas
+    for key, vals in comparison.items():
+        b = vals["baseline"]
+        c = vals["candidate"]
+        delta = c - b
+
+        # Determine improvement (context-dependent)
+        if key in ("on_time", "within_2d", "scheduled", "saved_pct"):
+            improved = delta > 0  # higher is better
+        elif key in ("beyond_7d", "late_jobs", "unplaced"):
+            improved = delta < 0  # lower is better
+        else:
+            improved = None
+
+        vals["delta"] = delta
+        vals["delta_pct"] = (delta / b * 100) if b != 0 else 0
+        vals["improved"] = improved
+
+    # Late job buckets comparison
+    def load_late_buckets(path):
+        if not path.exists():
+            return {"0-1d": 0, "1-2d": 0, "2-3d": 0, "3-4d": 0, "4-5d": 0, "5-6d": 0, "6-7d": 0, ">7d": 0}
+
+        df = pd.read_csv(path)
+        if "DaysLate" not in df.columns:
+            return {"0-1d": 0, "1-2d": 0, "2-3d": 0, "3-4d": 0, "4-5d": 0, "5-6d": 0, "6-7d": 0, ">7d": 0}
+
+        days = pd.to_numeric(df["DaysLate"], errors="coerce").dropna()
+        buckets = {"0-1d": 0, "1-2d": 0, "2-3d": 0, "3-4d": 0, "4-5d": 0, "5-6d": 0, "6-7d": 0, ">7d": 0}
+
+        for v in days:
+            if v <= 1:
+                buckets["0-1d"] += 1
+            elif v <= 2:
+                buckets["1-2d"] += 1
+            elif v <= 3:
+                buckets["2-3d"] += 1
+            elif v <= 4:
+                buckets["3-4d"] += 1
+            elif v <= 5:
+                buckets["4-5d"] += 1
+            elif v <= 6:
+                buckets["5-6d"] += 1
+            elif v <= 7:
+                buckets["6-7d"] += 1
+            else:
+                buckets[">7d"] += 1
+
+        return buckets
+
+    baseline_buckets = load_late_buckets(baseline_late)
+    candidate_buckets = load_late_buckets(candidate_late)
+
+    late_buckets_comparison = {
+        "baseline": baseline_buckets,
+        "candidate": candidate_buckets,
+        "delta": {k: candidate_buckets.get(k, 0) - baseline_buckets.get(k, 0)
+                  for k in baseline_buckets.keys()}
+    }
+
+    # Overall score (higher is better)
+    def compute_score(metrics):
+        return (
+                2.0 * metrics.get("on_time", {}).get("value", 0)
+                + 0.8 * metrics.get("within_2d", {}).get("value", 0)
+                - 1.0 * metrics.get("beyond_7d", {}).get("value", 0)
+        )
+
+    baseline_score = compute_score({k: {"value": v["baseline"]} for k, v in comparison.items()})
+    candidate_score = compute_score({k: {"value": v["candidate"]} for k, v in comparison.items()})
+
+    return jsonify({
+        "ok": True,
+        "scenario": scenario,
+        "comparison": comparison,
+        "late_buckets": late_buckets_comparison,
+        "score": {
+            "baseline": baseline_score,
+            "candidate": candidate_score,
+            "delta": candidate_score - baseline_score,
+            "improved": candidate_score > baseline_score
+        }
+    })
+
+
+
+
+
 @visualize_bp.get("/<scenario>/log-assistant")
 def get_log_assistant(scenario):
     """

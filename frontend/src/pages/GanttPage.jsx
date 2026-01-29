@@ -14,11 +14,16 @@ import {
   IconButton,
   Divider,
   Badge,
-  Chip,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import { useSelection } from "../context/SelectionContext";
 import { useNavigate } from "react-router-dom";
-import { FilterList, Menu as MenuIcon, Close as CloseIcon } from "@mui/icons-material";
+import {
+  FilterList,
+  Menu as MenuIcon,
+  Close as CloseIcon,
+} from "@mui/icons-material";
 import GanttChart from "../components/GanttChart";
 import { useScenario } from "../context/ScenarioContext";
 import ColorLegend from "../components/ColorLegend";
@@ -31,8 +36,9 @@ import {
   apiDiscardCandidate,
   apiDiscardOverrides,
   apiOverridesStatus,
+  apiGetKpiComparison,
 } from "../api";
-
+import KpiComparison from "../components/KpiComparison";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import PageLayout from "../components/PageLayout";
 
@@ -43,10 +49,12 @@ export default function GanttPage({ onOpenFilters }) {
   const { setSelection, setGanttZoom, ganttZoom } = useSelection();
   const navigate = useNavigate();
   const { filters, setMachineList } = useGlobalFilters();
+
   const [toast, setToast] = useState({ open: false, msg: "" });
   const [machineOrder, setMachineOrder] = useState([]);
   const [dirtyMap, setDirtyMap] = useState({});
   const [savedOverrideCount, setSavedOverrideCount] = useState(0);
+  const [kpiComparison, setKpiComparison] = useState(null);
 
   const [plan, setPlan] = useState([]);
   const [draftPlan, setDraftPlan] = useState([]);
@@ -57,6 +65,9 @@ export default function GanttPage({ onOpenFilters }) {
 
   const [showAllLabels, setShowAllLabels] = useState(false);
   const [actionPanelOpen, setActionPanelOpen] = useState(false);
+
+  // ✅ Option A: Tabs inside drawer (0=Actions, 1=KPIs)
+  const [drawerTab, setDrawerTab] = useState(0);
 
   const [viewportHeight, setViewportHeight] = useState(
     typeof window !== "undefined" ? window.innerHeight : 900
@@ -107,7 +118,11 @@ export default function GanttPage({ onOpenFilters }) {
       if (changed) {
         nextDirty[id] = {
           jobId: id,
-          orig: { WorkPlaceNo: base.WorkPlaceNo, Start: base.Start, End: base.End },
+          orig: {
+            WorkPlaceNo: base.WorkPlaceNo,
+            Start: base.Start,
+            End: base.End,
+          },
           next: { WorkPlaceNo: r.WorkPlaceNo, Start: r.Start, End: r.End },
         };
       }
@@ -143,9 +158,7 @@ export default function GanttPage({ onOpenFilters }) {
 
     if (filters.deadline === "late") {
       rows = rows.filter(
-        (r) =>
-          r.LatestStartDate &&
-          new Date(r.Start) > new Date(r.LatestStartDate)
+        (r) => r.LatestStartDate && new Date(r.Start) > new Date(r.LatestStartDate)
       );
     }
 
@@ -170,10 +183,7 @@ export default function GanttPage({ onOpenFilters }) {
   const ROW_HEIGHT = 30;
   const heightFromRows = machinesShown.length * ROW_HEIGHT + 160;
 
-  const dynamicHeight = Math.max(
-    520,
-    Math.min(heightFromRows, viewportHeight - 180)
-  );
+  const dynamicHeight = Math.max(520, Math.min(heightFromRows, viewportHeight - 180));
 
   const handleDownloadSvg = () => {
     const svg = document.getElementById("gantt-svg");
@@ -190,10 +200,7 @@ export default function GanttPage({ onOpenFilters }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleZoomChange = useCallback(
-    (domain) => setGanttZoom(domain),
-    [setGanttZoom]
-  );
+  const handleZoomChange = useCallback((domain) => setGanttZoom(domain), [setGanttZoom]);
 
   // ✅ Reset everything (draft + overrides)
   const resetAll = async () => {
@@ -226,13 +233,26 @@ export default function GanttPage({ onOpenFilters }) {
       // Auto-save if there are unsaved changes
       if (changes.length > 0) {
         await apiSavePlanChanges(scenario, changes);
-        setSavedOverrideCount(prevCount => prevCount + changes.length);
+        setSavedOverrideCount((prevCount) => prevCount + changes.length);
       }
 
       const res = await apiGenerateCandidate(scenario);
       setCandidatePlan(res.plan || []);
-      setActionPanelOpen(false);
-      setToast({ open: true, msg: "Kandidat generiert (Vorschau)." });
+
+      // ✅ NEW: Load KPI comparison
+      try {
+        const kpiData = await apiGetKpiComparison(scenario);
+        setKpiComparison(kpiData);
+      } catch (kpiError) {
+        console.warn("KPI comparison failed:", kpiError);
+        setKpiComparison(null);
+      }
+
+      // ✅ Open drawer + default to KPI tab
+      setDrawerTab(1);
+      setActionPanelOpen(true);
+
+      setToast({ open: true, msg: "Kandidat mit KPI-Vergleich generiert." });
     } catch (e) {
       console.error(e);
       setToast({ open: true, msg: "Fehler beim Generieren." });
@@ -254,7 +274,9 @@ export default function GanttPage({ onOpenFilters }) {
       setDraftPlan(res.plan || []);
       setCandidatePlan(null);
       setSavedOverrideCount(0);
+      setKpiComparison(null);
 
+      setDrawerTab(0);
       setActionPanelOpen(false);
       setToast({ open: true, msg: "Kandidat übernommen." });
     } catch (e) {
@@ -266,32 +288,32 @@ export default function GanttPage({ onOpenFilters }) {
   };
 
   // ✅ Discard candidate (back to baseline, keeps overrides)
-  // ✅ FIXED: Discard candidate + clear everything
-const discardCandidate = async () => {
-  try {
-    setLoading(true);
+  const discardCandidate = async () => {
+    try {
+      setLoading(true);
 
-    // 1. Discard candidate files
-    await apiDiscardCandidate(scenario);
+      // 1. Discard candidate files
+      await apiDiscardCandidate(scenario);
 
-    // 2. Delete overrides.json
-    await apiDiscardOverrides(scenario);
+      // 2. Delete overrides.json
+      await apiDiscardOverrides(scenario);
 
-    // 3. Reset all state
-    setCandidatePlan(null);
-    setDraftPlan(plan);              // ✅ Reset to baseline
-    setSavedOverrideCount(0);        // ✅ Clear saved count
-    // dirtyMap will auto-update via useEffect when draftPlan changes
+      // 3. Reset all state
+      setCandidatePlan(null);
+      setDraftPlan(plan); // ✅ Reset to baseline
+      setSavedOverrideCount(0);
+      setKpiComparison(null);
 
-    setActionPanelOpen(false);
-    setToast({ open: true, msg: "Zurückgesetzt zu Baseline." });
-  } catch (e) {
-    console.error(e);
-    setToast({ open: true, msg: "Fehler beim Verwerfen." });
-  } finally {
-    setLoading(false);
-  }
-};
+      setDrawerTab(0);
+      setActionPanelOpen(false);
+      setToast({ open: true, msg: "Zurückgesetzt zu Baseline." });
+    } catch (e) {
+      console.error(e);
+      setToast({ open: true, msg: "Fehler beim Verwerfen." });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const totalChanges = Object.keys(dirtyMap).length + savedOverrideCount;
   const hasChanges = totalChanges > 0;
@@ -301,70 +323,68 @@ const discardCandidate = async () => {
       title="Plantafel"
       maxWidth={1600}
       headerRight={
-  <>
-    <FormControlLabel
-      control={
-        <Switch
-          size="small"
-          checked={showAllLabels}
-          onChange={(e) => setShowAllLabels(e.target.checked)}
-        />
+        <>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showAllLabels}
+                onChange={(e) => setShowAllLabels(e.target.checked)}
+              />
+            }
+            label="Alle Beschriftungen"
+            sx={{
+              m: 0,
+              "& .MuiFormControlLabel-label": {
+                fontSize: "clamp(0.72rem, 0.68rem + 0.2vw, 0.82rem)",
+                color: "#334155",
+                fontWeight: 600,
+              },
+            }}
+          />
+
+          <ColorLegend />
+
+          <Badge
+            badgeContent={totalChanges}
+            color="warning"
+            sx={{
+              "& .MuiBadge-badge": {
+                bgcolor: candidatePlan ? "#16a34a" : "#f59e0b",
+              },
+            }}
+          >
+            <IconButton
+              onClick={() => setActionPanelOpen(true)}
+              sx={{
+                bgcolor: hasChanges || candidatePlan ? "action.selected" : "transparent",
+                "&:hover": { bgcolor: "action.hover" },
+              }}
+            >
+              <MenuIcon />
+            </IconButton>
+          </Badge>
+
+          {onOpenFilters && (
+            <Button
+              variant="text"
+              size="small"
+              startIcon={<FilterList sx={{ fontSize: 18 }} />}
+              onClick={onOpenFilters}
+              sx={{
+                minHeight: 30,
+                px: 1,
+                fontSize: "clamp(0.75rem, 0.7rem + 0.25vw, 0.9rem)",
+                fontWeight: 650,
+                color: "#0f3b63",
+                textTransform: "none",
+              }}
+            >
+              Filter
+            </Button>
+          )}
+        </>
       }
-      label="Alle Beschriftungen"
-      sx={{
-        m: 0,
-        "& .MuiFormControlLabel-label": {
-          fontSize: "clamp(0.72rem, 0.68rem + 0.2vw, 0.82rem)",
-          color: "#334155",
-          fontWeight: 600,
-        },
-      }}
-    />
-
-    {/* ✅ Add Legend */}
-    <ColorLegend />
-
-    {/* Action Menu Badge */}
-    <Badge
-      badgeContent={totalChanges}
-      color="warning"
-      sx={{
-        '& .MuiBadge-badge': {
-          bgcolor: candidatePlan ? '#16a34a' : '#f59e0b',
-        }
-      }}
-    >
-      <IconButton
-        onClick={() => setActionPanelOpen(true)}
-        sx={{
-          bgcolor: hasChanges || candidatePlan ? 'action.selected' : 'transparent',
-          '&:hover': { bgcolor: 'action.hover' }
-        }}
-      >
-        <MenuIcon />
-      </IconButton>
-    </Badge>
-
-    {onOpenFilters && (
-      <Button
-        variant="text"
-        size="small"
-        startIcon={<FilterList sx={{ fontSize: 18 }} />}
-        onClick={onOpenFilters}
-        sx={{
-          minHeight: 30,
-          px: 1,
-          fontSize: "clamp(0.75rem, 0.7rem + 0.25vw, 0.9rem)",
-          fontWeight: 650,
-          color: "#0f3b63",
-          textTransform: "none",
-        }}
-      >
-        Filter
-      </Button>
-    )}
-  </>
-}
     >
       <Card sx={{ borderRadius: 4, p: 3 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -375,20 +395,7 @@ const discardCandidate = async () => {
           </Box>
         )}
 
-        {candidatePlan && !loading && (
-          <Alert
-            severity="success"
-            sx={{
-              mb: 2,
-              borderRadius: 3,
-              fontWeight: 600,
-              alignItems: "center",
-            }}
-          >
-            ✅ Kandidat ist aktiv (Read-only Vorschau).
-            Verwenden Sie das Aktionsmenü zum Übernehmen oder Verwerfen.
-          </Alert>
-        )}
+        {/* ✅ IMPORTANT: KPI block removed from main page (prevents double scrollbars) */}
 
         {!loading && filteredPlan.length > 0 && (
           <GanttChart
@@ -421,9 +428,7 @@ const discardCandidate = async () => {
         )}
 
         {!loading && scenario && filteredPlan.length === 0 && (
-          <Alert severity="warning">
-            Keine Aufträge entsprechen den Filtern.
-          </Alert>
+          <Alert severity="warning">Keine Aufträge entsprechen den Filtern.</Alert>
         )}
       </Card>
 
@@ -435,12 +440,21 @@ const discardCandidate = async () => {
         PaperProps={{
           sx: {
             width: 360,
-            bgcolor: '#f8fafc',
-            p: 3
-          }
+            bgcolor: "#f8fafc",
+            p: 3,
+            display: "flex",
+            flexDirection: "column",
+          },
         }}
       >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 2,
+          }}
+        >
           <Typography variant="h6" fontWeight={700}>
             Aktionsmenü
           </Typography>
@@ -481,11 +495,11 @@ const discardCandidate = async () => {
                 disabled={!hasChanges}
                 onClick={generateCandidate}
                 sx={{
-                  bgcolor: '#0f3b63',
+                  bgcolor: "#0f3b63",
                   fontWeight: 700,
                   py: 1.5,
-                  '&:hover': { bgcolor: '#1e5a8e' },
-                  '&:disabled': { bgcolor: '#94a3b8' }
+                  "&:hover": { bgcolor: "#1e5a8e" },
+                  "&:disabled": { bgcolor: "#94a3b8" },
                 }}
               >
                 Plan generieren {hasChanges && `(${totalChanges})`}
@@ -506,16 +520,19 @@ const discardCandidate = async () => {
 
             <Typography variant="caption" color="text.secondary">
               <strong>Workflow:</strong>
-              <br />1. Balken verschieben (Drag & Drop)
-              <br />2. "Plan generieren" für Vorschau
-              <br />3. Kandidat prüfen und übernehmen
+              <br />
+              1. Balken verschieben (Drag & Drop)
+              <br />
+              2. "Plan generieren" für Vorschau
+              <br />
+              3. Kandidat prüfen und übernehmen
             </Typography>
           </Box>
         )}
 
         {/* CANDIDATE MODE (READ-ONLY) */}
         {candidatePlan && (
-          <Box>
+          <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
             <Alert severity="success" sx={{ mb: 2 }}>
               <Typography variant="body2" fontWeight={600}>
                 ✅ Kandidat bereit
@@ -525,35 +542,73 @@ const discardCandidate = async () => {
               </Typography>
             </Alert>
 
-            <Stack spacing={2}>
-              <Button
-                fullWidth
-                variant="contained"
-                size="large"
-                color="success"
-                onClick={applyCandidate}
-                sx={{ fontWeight: 700, py: 1.5 }}
-              >
-                Plan übernehmen
-              </Button>
+            <Tabs
+              value={drawerTab}
+              onChange={(_, v) => setDrawerTab(v)}
+              sx={{ mb: 2 }}
+              variant="fullWidth"
+            >
+              <Tab label="Aktionen" />
+              <Tab label="KPIs" />
+            </Tabs>
 
-              <Button
-                fullWidth
-                variant="outlined"
-                color="error"
-                onClick={discardCandidate}
-              >
-                Kandidat verwerfen
-              </Button>
-            </Stack>
+            {/* Actions tab */}
+            {drawerTab === 0 && (
+              <Box>
+                <Stack spacing={2}>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    size="large"
+                    color="success"
+                    onClick={applyCandidate}
+                    sx={{ fontWeight: 700, py: 1.5 }}
+                  >
+                    Plan übernehmen
+                  </Button>
 
-            <Divider sx={{ my: 3 }} />
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    color="error"
+                    onClick={discardCandidate}
+                  >
+                    Kandidat verwerfen
+                  </Button>
+                </Stack>
 
-            <Typography variant="caption" color="text.secondary">
-              <strong>Hinweis:</strong>
-              <br />• Übernehmen = Kandidat wird zum neuen Baseline
-              <br />• Verwerfen = Zurück zur Bearbeitung
-            </Typography>
+                <Divider sx={{ my: 3 }} />
+
+                <Typography variant="caption" color="text.secondary">
+                  <strong>Hinweis:</strong>
+                  <br />• Übernehmen = Kandidat wird zum neuen Baseline
+                  <br />• Verwerfen = Zurück zur Bearbeitung
+                </Typography>
+              </Box>
+            )}
+
+            {/* KPI tab (scrolls inside drawer only) */}
+            {drawerTab === 1 && (
+  <Box>
+    {/* ✅ REMOVED: sx={{ flex: 1, overflowY: "auto", pr: 1 }} */}
+    {/* Let content flow naturally - drawer handles scroll */}
+
+    {kpiComparison?.ok ? (
+      <>
+        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2 }}>
+          📊 KPI-Vergleich
+        </Typography>
+        <KpiComparison
+          comparison={kpiComparison.comparison}
+          score={kpiComparison.score}
+          lateBuckets={kpiComparison.late_buckets}
+        />
+      </>
+    ) : (
+      <Alert severity="info">KPI-Vergleich wird geladen...</Alert>
+    )}
+  </Box>
+)}
           </Box>
         )}
       </Drawer>

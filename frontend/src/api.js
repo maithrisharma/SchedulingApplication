@@ -81,7 +81,7 @@ export function apiMoveJob(scenario, job_id, target_start) {
   return apiPostJson(`/schedule/move/${scenario}`, { job_id, target_start });
 }
 // api.js
-// NEW CODE ✅
+// NEW CODE
 export function apiSavePlanChanges(scenario, changes) {
   // Helper to format as naive ISO (no 'Z' suffix)
   const formatNaive = (isoString) => {
@@ -122,4 +122,8 @@ export function apiOverridesStatus(scenario) {
 
 export function apiDiscardOverrides(scenario) {
   return apiPostJson(`/schedule/discard-overrides/${scenario}`, {});
+}
+
+export function apiGetKpiComparison(scenario) {
+  return apiGet(`/visualize/${scenario}/kpi-comparison`);
 }
