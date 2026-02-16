@@ -1,6 +1,6 @@
 // src/pages/DeliveryReportPage.jsx — GERMAN UI VERSION
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import PageLayout from "../components/PageLayout";
 import {
   Box,
@@ -32,7 +32,15 @@ const monthNames = [
 const dateFields = ["SupposedDeliveryDate", "DeliveryAfterScheduling"];
 const valueFilterFields = ["OrderNo", "DaysLate"];
 const BLANK_KEY = "__BLANK__";
+const STORAGE_KEY = (scenario) => `deliveryFilters::${scenario || "no_scenario"}`;
 
+function safeJsonParse(str, fallback) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
+}
 const gridTheme = createTheme({
   components: {
     MuiDataGrid: {
@@ -105,42 +113,82 @@ export default function DeliveryReportPage() {
 
   const [expandedYears, setExpandedYears] = useState({});
   const [expandedMonths, setExpandedMonths] = useState({});
-
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
+const hydratedRef = useRef(false);
   useEffect(() => {
     apiGet("/scenarios/list").then((res) => setScenarioList(res.scenarios || []));
   }, []);
+  // LOAD from sessionStorage
+useEffect(() => {
+  if (!scenario) {
+    setFiltersLoaded(false);
+    return;
+  }
+
+  hydratedRef.current = false;
+
+  const raw = sessionStorage.getItem(STORAGE_KEY(scenario));
+  const saved = raw ? safeJsonParse(raw, null) : null;
+
+  if (saved) {
+    if (saved.valueFilters) setValueFilters(saved.valueFilters);
+    if (saved.dateFilters) setDateFilters(saved.dateFilters);
+    if (saved.expandedYears) setExpandedYears(saved.expandedYears);
+    if (saved.expandedMonths) setExpandedMonths(saved.expandedMonths);
+  } else {
+    setValueFilters(() => {
+      const obj = {};
+      valueFilterFields.forEach((f) => obj[f] = { active: false, selected: [] });
+      return obj;
+    });
+    setDateFilters(() => {
+      const obj = {};
+      dateFields.forEach((f) => obj[f] = { selected: [], includeNull: false });
+      return obj;
+    });
+    setExpandedYears({});
+    setExpandedMonths({});
+  }
+
+  setTimeout(() => {
+    hydratedRef.current = true;
+    setFiltersLoaded(true);
+  }, 0);
+}, [scenario]);
 
   useEffect(() => {
-    if (!scenario) {
-      setRows([]);
-      return;
-    }
+  if (!scenario) {
+    setRows([]);
+    return;
+  }
 
-    setLoading(true);
-    apiGet(`/visual/${scenario}/delivery-table`)
-      .then((res) => {
-        if (!res?.ok) return setRows([]);
+  setLoading(true);
+  apiGet(`/visual/${scenario}/delivery-table`)
+    .then((res) => {
+      if (!res?.ok) return setRows([]);
 
-        const table = res.rows || [];
-        setRows(table.map((row, i) => ({ id: i, ...row })));
+      const table = res.rows || [];
+      setRows(table.map((row, i) => ({ id: i, ...row })));
 
-        setExpandedYears({});
-        setExpandedMonths({});
+      // ✅ DON'T reset filters here - they're managed by LOAD/SAVE effects
+    })
+    .finally(() => setLoading(false));
+}, [scenario]);
+  // SAVE to sessionStorage
+useEffect(() => {
+  if (!scenario) return;
+  if (!filtersLoaded) return;
+  if (!hydratedRef.current) return;
 
-        setDateFilters(() => {
-          const obj = {};
-          dateFields.forEach((f) => obj[f] = { selected: [], includeNull: false });
-          return obj;
-        });
+  const payload = {
+    valueFilters,
+    dateFilters,
+    expandedYears,
+    expandedMonths,
+  };
 
-        setValueFilters(() => {
-          const obj = {};
-          valueFilterFields.forEach((f) => obj[f] = { active: false, selected: [] });
-          return obj;
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [scenario]);
+  sessionStorage.setItem(STORAGE_KEY(scenario), JSON.stringify(payload));
+}, [scenario, filtersLoaded, valueFilters, dateFilters, expandedYears, expandedMonths]);
 
   const dateTrees = useMemo(() => {
     const trees = {};
@@ -316,21 +364,27 @@ export default function DeliveryReportPage() {
                   variant="outlined"
                   startIcon={<ClearAll />}
                   onClick={() => {
-                    setValueFilters(() => {
-                      const obj = {};
-                      valueFilterFields.forEach((f) => obj[f] = { active: false, selected: [] });
-                      return obj;
-                    });
+  setValueFilters(() => {
+    const obj = {};
+    valueFilterFields.forEach((f) => obj[f] = { active: false, selected: [] });
+    return obj;
+  });
 
-                    setDateFilters(() => {
-                      const obj = {};
-                      dateFields.forEach((f) => obj[f] = { selected: [], includeNull: false });
-                      return obj;
-                    });
+  setDateFilters(() => {
+    const obj = {};
+    dateFields.forEach((f) => obj[f] = { selected: [], includeNull: false });
+    return obj;
+  });
 
-                    setExpandedYears({});
-                    setExpandedMonths({});
-                  }}
+  setExpandedYears({});
+  setExpandedMonths({});
+
+  if (scenario) {
+    sessionStorage.removeItem(STORAGE_KEY(scenario));
+    setFiltersLoaded(false);
+    setTimeout(() => setFiltersLoaded(true), 0);
+  }
+}}
                 >
                   Filter löschen
                 </Button>

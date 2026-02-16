@@ -1,6 +1,6 @@
 // src/pages/PlanTablePage.jsx
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import PageLayout from "../components/PageLayout";
 import {
   Box,
@@ -81,6 +81,7 @@ const initialBoolFilters = {
 
 // Key used for blanks in value filters
 const BLANK_KEY = "__BLANK__";
+const STORAGE_KEY = (scenario) => `planTableFilters::${scenario || "no_scenario"}`;
 
 // Grid theme – white background, bold black headers
 const gridTheme = createTheme({
@@ -105,6 +106,14 @@ const gridTheme = createTheme({
     },
   },
 });
+
+function safeJsonParse(str, fallback) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
+}
 
 // -------------------- SMALL REUSABLE PARTS --------------------
 
@@ -197,6 +206,8 @@ export default function PlanTablePage() {
     });
     return obj;
   });
+  // Track if filters have been loaded from storage
+const [filtersLoaded, setFiltersLoaded] = useState(false);
 
   // Popover state
   const [dateFilterAnchor, setDateFilterAnchor] = useState(null);
@@ -215,6 +226,7 @@ export default function PlanTablePage() {
   //   monthKey = `${field}-${year}-${month}`
   const [expandedYears, setExpandedYears] = useState({});
   const [expandedMonths, setExpandedMonths] = useState({});
+  const hydratedRef = useRef(false);
 
   // ---------- LOAD SCENARIO OPTIONS (for selector) ----------
 
@@ -223,6 +235,58 @@ export default function PlanTablePage() {
       setScenarioOptions(res.scenarios || []);
     });
   }, []);
+
+
+  // ✅ LOAD from sessionStorage when scenario changes
+useEffect(() => {
+  if (!scenario) {
+    setFiltersLoaded(false);
+    return;
+  }
+
+  // Prevent save during restore
+  hydratedRef.current = false;
+
+  const raw = sessionStorage.getItem(STORAGE_KEY(scenario));
+  const saved = raw ? safeJsonParse(raw, null) : null;
+
+  if (saved) {
+    // Restore all states in a batch
+    if (saved.activeTab != null) setActiveTab(saved.activeTab);
+    if (saved.boolFilters) setBoolFilters(saved.boolFilters);
+    if (saved.dateFilters) setDateFilters(saved.dateFilters);
+    if (saved.valueFilters) setValueFilters(saved.valueFilters);
+    if (saved.expandedYears) setExpandedYears(saved.expandedYears);
+    if (saved.expandedMonths) setExpandedMonths(saved.expandedMonths);
+  } else {
+    // No saved data - reset to defaults
+    setActiveTab(0);
+    setBoolFilters(initialBoolFilters);
+    setDateFilters(() => {
+      const obj = {};
+      dateFields.forEach((f) => {
+        obj[f] = { selected: [], includeNull: false };
+      });
+      return obj;
+    });
+    setValueFilters(() => {
+      const obj = {};
+      valueFilterFields.forEach((f) => {
+        obj[f] = { active: false, selected: [] };
+      });
+      return obj;
+    });
+    setExpandedYears({});
+    setExpandedMonths({});
+  }
+
+  // Mark as loaded after a short delay to ensure all states are updated
+  setTimeout(() => {
+    hydratedRef.current = true;
+    setFiltersLoaded(true);
+  }, 0);
+}, [scenario]);
+
 
   // ---------- LOAD DATA ----------
 
@@ -246,6 +310,33 @@ export default function PlanTablePage() {
       })
       .finally(() => setLoading(false));
   }, [scenario, activeTab]);
+
+  // ✅ SAVE to sessionStorage when filters change (but not during initial load)
+useEffect(() => {
+  if (!scenario) return;
+  if (!filtersLoaded) return;  // Don't save until initial load completes
+  if (!hydratedRef.current) return;  // Don't save during restore
+
+  const payload = {
+    activeTab,
+    boolFilters,
+    dateFilters,
+    valueFilters,
+    expandedYears,
+    expandedMonths,
+  };
+
+  sessionStorage.setItem(STORAGE_KEY(scenario), JSON.stringify(payload));
+}, [
+  scenario,
+  filtersLoaded,  // Add this dependency
+  activeTab,
+  boolFilters,
+  dateFilters,
+  valueFilters,
+  expandedYears,
+  expandedMonths,
+]);
 
   // ---------- DATE TREE (YEAR / MONTH / DAY + HAS NULL) ----------
 
@@ -419,6 +510,11 @@ export default function PlanTablePage() {
       });
       return obj;
     });
+    if (scenario) {
+  sessionStorage.removeItem(STORAGE_KEY(scenario));
+  setFiltersLoaded(false);  // Reset loaded flag
+  setTimeout(() => setFiltersLoaded(true), 0);  // Re-enable saving
+}
   };
 
   // ---------- COLUMN DEFINITIONS ----------

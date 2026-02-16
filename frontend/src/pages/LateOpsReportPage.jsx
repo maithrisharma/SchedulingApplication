@@ -1,6 +1,6 @@
 // src/pages/LateOpsReportPage.jsx
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import PageLayout from "../components/PageLayout";
 import {
   Box,
@@ -60,7 +60,15 @@ const valueFilterFields = [
 const initialBoolFilters = {};
 
 const BLANK_KEY = "__BLANK__";
+const STORAGE_KEY = (scenario) => `lateOpsFilters::${scenario || "no_scenario"}`;
 
+function safeJsonParse(str, fallback) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
+}
 // Grid theme
 const gridTheme = createTheme({
   palette: { mode: "light" },
@@ -175,7 +183,9 @@ export default function LateOpsReportPage() {
   // Collapsed/expanded state for the "Excel tree" date popper
   const [yearOpenMap, setYearOpenMap] = useState({});
   const [monthOpenMap, setMonthOpenMap] = useState({});
-
+  // Track if filters have been loaded from storage
+const [filtersLoaded, setFiltersLoaded] = useState(false);
+const hydratedRef = useRef(false);
   // -------- Scenario list --------
 
   useEffect(() => {
@@ -183,6 +193,51 @@ export default function LateOpsReportPage() {
       setScenarioList(res.scenarios || []);
     });
   }, []);
+  // -------- LOAD from sessionStorage --------
+useEffect(() => {
+  if (!scenario) {
+    setFiltersLoaded(false);
+    return;
+  }
+
+  // Prevent save during restore
+  hydratedRef.current = false;
+
+  const raw = sessionStorage.getItem(STORAGE_KEY(scenario));
+  const saved = raw ? safeJsonParse(raw, null) : null;
+
+  if (saved) {
+    // Restore all states
+    if (saved.dateFilters) setDateFilters(saved.dateFilters);
+    if (saved.valueFilters) setValueFilters(saved.valueFilters);
+    if (saved.yearOpenMap) setYearOpenMap(saved.yearOpenMap);
+    if (saved.monthOpenMap) setMonthOpenMap(saved.monthOpenMap);
+  } else {
+    // No saved data - reset to defaults
+    setDateFilters(() => {
+      const obj = {};
+      dateFields.forEach((f) => {
+        obj[f] = { selected: [], includeNull: false };
+      });
+      return obj;
+    });
+    setValueFilters(() => {
+      const obj = {};
+      valueFilterFields.forEach((f) => {
+        obj[f] = { active: false, selected: [] };
+      });
+      return obj;
+    });
+    setYearOpenMap({});
+    setMonthOpenMap({});
+  }
+
+  // Mark as loaded
+  setTimeout(() => {
+    hydratedRef.current = true;
+    setFiltersLoaded(true);
+  }, 0);
+}, [scenario]);
 
   // -------- Load late-table --------
 
@@ -210,6 +265,28 @@ export default function LateOpsReportPage() {
       })
       .finally(() => setLoading(false));
   }, [scenario]);
+  // -------- SAVE to sessionStorage --------
+useEffect(() => {
+  if (!scenario) return;
+  if (!filtersLoaded) return;  // Don't save until initial load completes
+  if (!hydratedRef.current) return;  // Don't save during restore
+
+  const payload = {
+    dateFilters,
+    valueFilters,
+    yearOpenMap,
+    monthOpenMap,
+  };
+
+  sessionStorage.setItem(STORAGE_KEY(scenario), JSON.stringify(payload));
+}, [
+  scenario,
+  filtersLoaded,
+  dateFilters,
+  valueFilters,
+  yearOpenMap,
+  monthOpenMap,
+]);
 
   // -------- Date trees --------
   const dateTrees = useMemo(() => {
@@ -361,6 +438,11 @@ export default function LateOpsReportPage() {
       });
       return obj;
     });
+    if (scenario) {
+        sessionStorage.removeItem(STORAGE_KEY(scenario));
+        setFiltersLoaded(false);
+        setTimeout(() => setFiltersLoaded(true), 0);
+        }
   };
 
   // -------- Columns (Responsive: minWidth + flex) --------

@@ -1,5 +1,5 @@
 // src/pages/UnplacedPage.jsx
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import PageLayout from "../components/PageLayout";
 import {
   Box,
@@ -42,7 +42,15 @@ const monthNames = [
 
 const dateField = "LatestStartDate"; // only date field for Unplaced
 const BLANK_KEY = "__BLANK__";
+const STORAGE_KEY = (scenario) => `unplacedFilters::${scenario || "no_scenario"}`;
 
+function safeJsonParse(str, fallback) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
+}
 // =============================================
 // GRID THEME
 // =============================================
@@ -131,7 +139,8 @@ export default function UnplacedPage() {
   // collapsible state for date tree
   const [expandedYears, setExpandedYears] = useState({});
   const [expandedMonths, setExpandedMonths] = useState({});
-
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
+const hydratedRef = useRef(false);
   // =============================================
   // LOAD SCENARIOS
   // =============================================
@@ -140,44 +149,76 @@ export default function UnplacedPage() {
       setScenarioList(res.scenarios || []);
     });
   }, []);
+  // LOAD from sessionStorage
+useEffect(() => {
+  if (!scenario) {
+    setFiltersLoaded(false);
+    return;
+  }
+
+  hydratedRef.current = false;
+
+  const raw = sessionStorage.getItem(STORAGE_KEY(scenario));
+  const saved = raw ? safeJsonParse(raw, null) : null;
+
+  if (saved) {
+    if (saved.valueFilters) setValueFilters(saved.valueFilters);
+    if (saved.dateFilter) setDateFilter(saved.dateFilter);
+    if (saved.expandedYears) setExpandedYears(saved.expandedYears);
+    if (saved.expandedMonths) setExpandedMonths(saved.expandedMonths);
+  } else {
+    setValueFilters({});
+    setDateFilter({ selected: [], includeNull: false });
+    setExpandedYears({});
+    setExpandedMonths({});
+  }
+
+  setTimeout(() => {
+    hydratedRef.current = true;
+    setFiltersLoaded(true);
+  }, 0);
+}, [scenario]);
 
   // =============================================
   // LOAD DATA
   // =============================================
   useEffect(() => {
-    if (!scenario) {
-      setRows([]);
-      return;
-    }
+  if (!scenario) {
+    setRows([]);
+    return;
+  }
 
-    setLoading(true);
+  setLoading(true);
 
-    apiGet(`/visual/${scenario}/unplaced`)
-      .then((res) => {
-        if (!res?.ok) {
-          setRows([]);
-          return;
-        }
+  apiGet(`/visual/${scenario}/unplaced`)
+    .then((res) => {
+      if (!res?.ok) {
+        setRows([]);
+        return;
+      }
 
-        const table = res.rows || [];
-        setRows(table.map((row, i) => ({ id: row.job_id ?? i, ...row })));
+      const table = res.rows || [];
+      setRows(table.map((row, i) => ({ id: row.job_id ?? i, ...row })));
 
-        // initialize value filters based on columns
-        const f = {};
-        if (table.length > 0) {
-          Object.keys(table[0]).forEach((col) => {
-            f[col] = { active: false, selected: [] };
-          });
-        }
-        setValueFilters(f);
+      // ✅ DON'T reset filters here - they're managed by LOAD/SAVE effects
+    })
+    .finally(() => setLoading(false));
+}, [scenario]);
+  // SAVE to sessionStorage
+useEffect(() => {
+  if (!scenario) return;
+  if (!filtersLoaded) return;
+  if (!hydratedRef.current) return;
 
-        // reset date tree expansion when scenario changes
-        setExpandedYears({});
-        setExpandedMonths({});
-        setDateFilter({ selected: [], includeNull: false });
-      })
-      .finally(() => setLoading(false));
-  }, [scenario]);
+  const payload = {
+    valueFilters,
+    dateFilter,
+    expandedYears,
+    expandedMonths,
+  };
+
+  sessionStorage.setItem(STORAGE_KEY(scenario), JSON.stringify(payload));
+}, [scenario, filtersLoaded, valueFilters, dateFilter, expandedYears, expandedMonths]);
 
   // =============================================
   // BUILD DATE TREE (year → month → day)
@@ -378,15 +419,21 @@ const gridHeight = Math.max(
                   variant="outlined"
                   startIcon={<ClearAll />}
                   onClick={() => {
-                    const cleared = {};
-                    Object.keys(valueFilters).forEach((f) => {
-                      cleared[f] = { active: false, selected: [] };
-                    });
-                    setValueFilters(cleared);
-                    setDateFilter({ selected: [], includeNull: false });
-                    setExpandedYears({});
-                    setExpandedMonths({});
-                  }}
+  const cleared = {};
+  Object.keys(valueFilters).forEach((f) => {
+    cleared[f] = { active: false, selected: [] };
+  });
+  setValueFilters(cleared);
+  setDateFilter({ selected: [], includeNull: false });
+  setExpandedYears({});
+  setExpandedMonths({});
+
+  if (scenario) {
+    sessionStorage.removeItem(STORAGE_KEY(scenario));
+    setFiltersLoaded(false);
+    setTimeout(() => setFiltersLoaded(true), 0);
+  }
+}}
                 >
                   Filter löschen
                 </Button>

@@ -1,6 +1,6 @@
 // src/pages/MissingRt10Page.jsx
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import PageLayout from "../components/PageLayout";
 import {
   Box,
@@ -36,7 +36,15 @@ const initialValueFilters = valueFilterFields.reduce((acc, f) => {
 }, {});
 
 const BLANK_KEY = "__BLANK__";
+const STORAGE_KEY = (scenario) => `missingRt10Filters::${scenario || "no_scenario"}`;
 
+function safeJsonParse(str, fallback) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
+}
 // Grid theme – consistent with other pages
 const gridTheme = createTheme({
   palette: { mode: "light" },
@@ -100,13 +108,37 @@ export default function MissingRt10Page() {
   const [valueFilterAnchor, setValueFilterAnchor] = useState(null);
   const [activeValueField, setActiveValueField] = useState(null);
   const [valueFilterSearch, setValueFilterSearch] = useState("");
-
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
+const hydratedRef = useRef(false);
   // -------- Scenario list --------
   useEffect(() => {
     apiGet("/scenarios/list").then((res) => {
       setScenarioList(res.scenarios || []);
     });
   }, []);
+  // LOAD from sessionStorage
+useEffect(() => {
+  if (!scenario) {
+    setFiltersLoaded(false);
+    return;
+  }
+
+  hydratedRef.current = false;
+
+  const raw = sessionStorage.getItem(STORAGE_KEY(scenario));
+  const saved = raw ? safeJsonParse(raw, null) : null;
+
+  if (saved) {
+    if (saved.valueFilters) setValueFilters(saved.valueFilters);
+  } else {
+    setValueFilters(initialValueFilters);
+  }
+
+  setTimeout(() => {
+    hydratedRef.current = true;
+    setFiltersLoaded(true);
+  }, 0);
+}, [scenario]);
 
   // -------- Load table --------
   useEffect(() => {
@@ -132,6 +164,15 @@ export default function MissingRt10Page() {
       })
       .finally(() => setLoading(false));
   }, [scenario]);
+  // SAVE to sessionStorage
+useEffect(() => {
+  if (!scenario) return;
+  if (!filtersLoaded) return;
+  if (!hydratedRef.current) return;
+
+  const payload = { valueFilters };
+  sessionStorage.setItem(STORAGE_KEY(scenario), JSON.stringify(payload));
+}, [scenario, filtersLoaded, valueFilters]);
 
   // -------- Distinct value options --------
   const valueOptions = useMemo(() => {
@@ -187,8 +228,13 @@ export default function MissingRt10Page() {
   };
 
   const handleClearAllFilters = () => {
-    setValueFilters(initialValueFilters);
-  };
+  setValueFilters(initialValueFilters);
+  if (scenario) {
+    sessionStorage.removeItem(STORAGE_KEY(scenario));
+    setFiltersLoaded(false);
+    setTimeout(() => setFiltersLoaded(true), 0);
+  }
+};
 
   // -------- Columns --------
   const columns = [

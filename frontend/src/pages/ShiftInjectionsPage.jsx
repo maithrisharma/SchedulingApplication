@@ -1,6 +1,6 @@
 // src/pages/ShiftInjectionsPage.jsx — FINAL, EXACTLY LIKE UNPLACED PAGE
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import PageLayout from "../components/PageLayout";
 import {
   Box,
@@ -33,7 +33,15 @@ const monthNames = [
 const dateFields = ["injected_start", "injected_end"];
 const valueFilterFields = ["WorkPlaceNo", "injected_minutes", "reason"];
 const BLANK_KEY = "__BLANK__";
+const STORAGE_KEY = (scenario) => `shiftInjectionsFilters::${scenario || "no_scenario"}`;
 
+function safeJsonParse(str, fallback) {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
+}
 const gridTheme = createTheme({
   components: {
     MuiDataGrid: {
@@ -107,39 +115,81 @@ export default function ShiftInjectionsPage() {
 
   const [expandedYears, setExpandedYears] = useState({});
   const [expandedMonths, setExpandedMonths] = useState({});
-
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
+const hydratedRef = useRef(false);
   useEffect(() => {
     apiGet("/scenarios/list").then((res) => setScenarioList(res.scenarios || []));
   }, []);
+  // LOAD from sessionStorage
+useEffect(() => {
+  if (!scenario) {
+    setFiltersLoaded(false);
+    return;
+  }
+
+  hydratedRef.current = false;
+
+  const raw = sessionStorage.getItem(STORAGE_KEY(scenario));
+  const saved = raw ? safeJsonParse(raw, null) : null;
+
+  if (saved) {
+    if (saved.dateFilters) setDateFilters(saved.dateFilters);
+    if (saved.valueFilters) setValueFilters(saved.valueFilters);
+    if (saved.expandedYears) setExpandedYears(saved.expandedYears);
+    if (saved.expandedMonths) setExpandedMonths(saved.expandedMonths);
+  } else {
+    setDateFilters(() => {
+      const obj = {};
+      dateFields.forEach((f) => obj[f] = { selected: [], includeNull: false });
+      return obj;
+    });
+    setValueFilters(() => {
+      const obj = {};
+      valueFilterFields.forEach((f) => obj[f] = { active: false, selected: [] });
+      return obj;
+    });
+    setExpandedYears({});
+    setExpandedMonths({});
+  }
+
+  setTimeout(() => {
+    hydratedRef.current = true;
+    setFiltersLoaded(true);
+  }, 0);
+}, [scenario]);
 
   useEffect(() => {
-    if (!scenario) {
-      setRows([]);
-      return;
-    }
+  if (!scenario) {
+    setRows([]);
+    return;
+  }
 
-    setLoading(true);
-    apiGet(`/visual/${scenario}/shift-injections`)
-      .then((res) => {
-        if (!res?.ok) return setRows([]);
-        const table = res.rows || [];
-        setRows(table.map((row, i) => ({ id: i, ...row })));
+  setLoading(true);
+  apiGet(`/visual/${scenario}/shift-injections`)
+    .then((res) => {
+      if (!res?.ok) return setRows([]);
+      const table = res.rows || [];
+      setRows(table.map((row, i) => ({ id: i, ...row })));
 
-        setExpandedYears({});
-        setExpandedMonths({});
-        setDateFilters(() => {
-          const obj = {};
-          dateFields.forEach((f) => obj[f] = { selected: [], includeNull: false });
-          return obj;
-        });
-        setValueFilters(() => {
-          const obj = {};
-          valueFilterFields.forEach((f) => obj[f] = { active: false, selected: [] });
-          return obj;
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [scenario]);
+      // ✅ DON'T reset filters here - they're managed by LOAD/SAVE effects
+    })
+    .finally(() => setLoading(false));
+}, [scenario]);
+// SAVE to sessionStorage
+useEffect(() => {
+  if (!scenario) return;
+  if (!filtersLoaded) return;
+  if (!hydratedRef.current) return;
+
+  const payload = {
+    dateFilters,
+    valueFilters,
+    expandedYears,
+    expandedMonths,
+  };
+
+  sessionStorage.setItem(STORAGE_KEY(scenario), JSON.stringify(payload));
+}, [scenario, filtersLoaded, dateFilters, valueFilters, expandedYears, expandedMonths]);
 
   const dateTrees = useMemo(() => {
     const trees = {};
@@ -228,19 +278,25 @@ export default function ShiftInjectionsPage() {
 
               <Stack direction="row" spacing={2}>
                 <Button variant="outlined" startIcon={<ClearAll />} onClick={() => {
-                  setValueFilters(() => {
-                    const obj = {};
-                    valueFilterFields.forEach((f) => obj[f] = { active: false, selected: [] });
-                    return obj;
-                  });
-                  setDateFilters(() => {
-                    const obj = {};
-                    dateFields.forEach((f) => obj[f] = { selected: [], includeNull: false });
-                    return obj;
-                  });
-                  setExpandedYears({});
-                  setExpandedMonths({});
-                }}>
+  setValueFilters(() => {
+    const obj = {};
+    valueFilterFields.forEach((f) => obj[f] = { active: false, selected: [] });
+    return obj;
+  });
+  setDateFilters(() => {
+    const obj = {};
+    dateFields.forEach((f) => obj[f] = { selected: [], includeNull: false });
+    return obj;
+  });
+  setExpandedYears({});
+  setExpandedMonths({});
+
+  if (scenario) {
+    sessionStorage.removeItem(STORAGE_KEY(scenario));
+    setFiltersLoaded(false);
+    setTimeout(() => setFiltersLoaded(true), 0);
+  }
+}}>
                   Filter löschen
                 </Button>
                 <Button variant="contained" startIcon={<Download />} disabled={!scenario} onClick={() => apiFetchFile(`/visual/${scenario}/shift-injections-excel`, `${scenario}_shift_injections.xlsx`)}>
