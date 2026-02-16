@@ -21,6 +21,24 @@ import PartImage from "../assets/image.png";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_SPAN_MS = 60 * 60 * 1000;
+function getWeekendDates(startDate, endDate) {
+  const weekends = [];
+
+  // Create dates in local timezone to avoid shifts
+  const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+  const current = new Date(start);
+
+  while (current <= end) {
+    const day = current.getDay();
+    if (day === 0 || day === 6) {  // Sunday=0, Saturday=6
+      weekends.push(new Date(current));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+
+  return weekends;
+}
 
 // ✅ CLEAR COLOR SCHEME - No conflicts!
 const getBarColor = (job, isChanged = false) => {
@@ -564,7 +582,10 @@ setInvalid(d.jobId, invalidPreds.length > 0);
 
   const approxTicks = Math.max(4, Math.floor(innerWidth / 90));
   const numTicks = Math.min(approxTicks, 24);
-
+  const weekendDates = useMemo(() => {
+    if (!viewDomain?.start || !viewDomain?.end) return [];
+    return getWeekendDates(viewDomain.start, viewDomain.end);
+  }, [viewDomain]);
   /* -----------------------------
      Zoom
   ----------------------------- */
@@ -578,9 +599,9 @@ setInvalid(d.jobId, invalidPreds.length > 0);
       let newSpanMs = spanMs / factor;
       newSpanMs = Math.max(MIN_SPAN_MS, Math.min(newSpanMs, fullSpanMs));
 
-      const mid = (prev.start.getTime() + prev.end.getTime()) / 2;
-      let start = mid - newSpanMs / 2;
-      let end = mid + newSpanMs / 2;
+      // ✅ CHANGED: Anchor at start (not center)
+      let start = prev.start.getTime();  // Keep start fixed
+      let end = start + newSpanMs;       // Expand/contract from start
 
       const gStart = globalStart.getTime();
       const gEnd = globalEnd.getTime();
@@ -732,7 +753,59 @@ setInvalid(d.jobId, invalidPreds.length > 0);
           <Group clipPath={`url(#${uid}-clip)`}>
             <GridRows scale={yScale} width={innerWidth} left={margin.left} stroke="#e0e0e0" />
             <GridColumns scale={xScale} height={innerHeight} top={margin.top} stroke="#e0e0e0" />
+            {/* ✅ ADD: Weekend visualization */}
+            {weekendDates.map((date, idx) => {
+              const x = xScale(date);
+              const nextDay = new Date(date.getTime() + 24 * 60 * 60 * 1000);
+              const dayWidth = xScale(nextDay) - x;
 
+              // Skip if too small to render
+              if (dayWidth < 0.5) return null;
+
+              const label = date.getDay() === 6 ? 'Sa' : 'So';
+
+              return (
+                <g key={`weekend-${idx}`}>
+                  {/* Light gray background */}
+                  <rect
+                    x={x}
+                    y={margin.top}
+                    width={dayWidth}
+                    height={innerHeight}
+                    fill="rgba(148, 163, 184, 0.15)"
+                    pointerEvents="none"
+                  />
+
+                  {/* Dashed border */}
+                  <line
+                    x1={x}
+                    y1={margin.top}
+                    x2={x}
+                    y2={margin.top + innerHeight}
+                    stroke="#94a3b8"
+                    strokeWidth={1}
+                    strokeDasharray="4,4"
+                    pointerEvents="none"
+                  />
+
+                  {/* Label when zoomed in */}
+                  {viewSpanDays < 21 && dayWidth > 30 && (
+                    <text
+                      x={x + dayWidth / 2}
+                      y={margin.top - 10}
+                      textAnchor="middle"
+                      fill="#64748b"
+                      fontSize={10}
+                      fontWeight={600}
+                      pointerEvents="none"
+                    >
+                      {label}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+            {/* END OF ADDITION */}
             {parsed.map((job, i) => {
               const x1 = xScale(job.Start);
               const x2 = xScale(job.End);
@@ -781,21 +854,16 @@ if (highlightOrder) {
 }
 
 
-const barOpacity = hasCandidate ? 0.7 : 1;
+              const barOpacity = hasCandidate ? 0.7 : 1;
 
               const iconWidth = Math.min(24, barWidth - 4);
-              const pictogramVisible = showPictogram && barWidth > 50 && iconWidth > 0;
-              const showOrderLabel = job.OrderNo && barWidth > ORDER_LABEL_MIN_WIDTH;
+              const showPictogram = viewSpanDays <= 21 && barWidth > 90 && iconWidth > 0;
+              const showOrderLabel = job.OrderNo && barWidth > (showPictogram ? 90 : 40);
               const iconClipId = `${uid}-icon-clip-${i}`;
+              const circleClipId = `${uid}-circle-${jobIdStr}-${i}`;
 
               return (
-                <g key={job.job_id ?? `${job.OrderNo}-${job.OpNo}`}>
-                  {pictogramVisible && (
-                    <clipPath id={iconClipId}>
-                      <rect x={x1} y={y} width={iconWidth} height={barHeight} rx={6} />
-                    </clipPath>
-                  )}
-
+                <g key={`${uid}-${jobIdStr}-${i}`}>
                   <rect
                     x={x1}
                     y={y}
@@ -867,46 +935,62 @@ const barOpacity = hasCandidate ? 0.7 : 1;
                     style={{ cursor: hasCandidate ? "not-allowed" : (isDraggingBar ? "grabbing" : "grab") }}
                   />
 
-                  {pictogramVisible && (
-                    <>
-                      <image
-                        href={PartImage}
-                        x={x1}
-                        y={y}
-                        width={iconWidth}
-                        height={barHeight}
-                        preserveAspectRatio="xMidYMid slice"
-                        clipPath={`url(#${iconClipId})`}
-                      />
-                      {showOrderLabel && (
-                        <text
-                          x={x1 + iconWidth + 4}
-                          y={y + barHeight / 2 + 4}
-                          fill="#ffffff"
-                          fontSize={11}
-                          fontWeight={600}
-                          pointerEvents="none"
-                        >
-                          {String(job.OrderNo)}
-                        </text>
-                      )}
-                    </>
-                  )}
+                  {/* ✅ IMAGE BADGE (RIGHT SIDE) - ONLY if showPictogram is true */}
+    {showPictogram && (
+      <g>
+        {/* White circular background */}
+        <circle
+          cx={x1 + barWidth - 20}
+          cy={y + barHeight / 2}
+          r={13}
+          fill="white"
+          opacity={0.95}
+          stroke={borderColor}
+          strokeWidth={1.5}
+        />
 
-                  {!pictogramVisible && showOrderLabel && (
-                    <text
-                      x={x1 + 4}
-                      y={y + barHeight / 2 + 4}
-                      fill="#ffffff"
-                      fontSize={11}
-                      fontWeight={600}
-                      pointerEvents="none"
-                    >
-                      {String(job.OrderNo)}
-                    </text>
-                  )}
-                </g>
-              );
+        {/* Circular image clip */}
+        <defs>
+          <clipPath id={circleClipId}>
+            <circle
+              cx={x1 + barWidth - 20}
+              cy={y + barHeight / 2}
+              r={11}
+            />
+          </clipPath>
+        </defs>
+
+        {/* Image */}
+        <image
+          href={PartImage}
+          x={x1 + barWidth - 31}
+          y={y + barHeight / 2 - 11}
+          width={22}
+          height={22}
+          preserveAspectRatio="xMidYMid slice"
+          clipPath={`url(#${circleClipId})`}
+          opacity={0.92}
+          pointerEvents="none"
+        />
+      </g>
+    )}
+
+    {/* ✅ ORDER NUMBER TEXT - SINGLE RENDERING ONLY! */}
+    {showOrderLabel && (
+      <text
+        x={showPictogram ? x1 + 8 : x1 + barWidth / 2}
+        y={y + barHeight / 2 + 4}
+        textAnchor={showPictogram ? "start" : "middle"}
+        fill="#ffffff"
+        fontSize={barWidth < 80 ? 9 : 11}
+        fontWeight={600}
+        pointerEvents="none"
+      >
+        {String(job.OrderNo)}
+      </text>
+    )}
+  </g>
+);
             })}
           </Group>
 
@@ -923,11 +1007,48 @@ const barOpacity = hasCandidate ? 0.7 : 1;
           />
 
           <AxisBottom
-            top={height - margin.bottom}
-            scale={xScale}
-            numTicks={numTicks}
-            tickFormat={formatTick}
-          />
+  scale={xScale}
+  top={innerHeight + margin.top}
+  tickFormat={(d) => {
+    const date = new Date(d);
+
+    // Always include date for end-of-range ticks
+    if (viewSpanDays < 1) {
+      // Zoomed in: "04 Feb, 14:00"
+      return date.toLocaleDateString('de-DE', {
+        day: '2-digit',
+        month: 'short'
+      }) + ', ' + date.toLocaleTimeString('de-DE', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+    else if (viewSpanDays < 7) {
+      // Week: "Mo 04 Feb"
+      return date.toLocaleDateString('de-DE', {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short'
+      });
+    }
+    else {
+      // Month+: "04 Feb"
+      return date.toLocaleDateString('de-DE', {
+        day: '2-digit',
+        month: 'short'
+      });
+    }
+  }}
+  numTicks={Math.max(5, Math.min(numTicks, 12))} // Limit to 5-12 ticks
+  stroke="#888"
+  tickStroke="#888"
+  tickLabelProps={() => ({
+    fill: '#666',
+    fontSize: 10,
+    textAnchor: 'middle',
+    dy: 4,
+  })}
+/>
         </svg>
 
         {/* ✅ MINIMAL TOOLBAR - No box border */}

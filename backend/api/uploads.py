@@ -69,3 +69,36 @@ def upload_files(scenario_name):
         "jobs_path": str(jobs_path),
         "shifts_path": str(shifts_path)
     })
+@uploads_bp.get("/<scenario_name>/status")
+def upload_status(scenario_name):
+    """
+    GET /api/uploads/<scenario_name>/status
+
+    Returns whether jobs.xlsx and shifts.xlsx exist
+    in scenarios/<scenario_name>/input/
+    """
+
+    base_path = Path("scenarios") / scenario_name
+    input_dir = base_path / "input"
+
+    if not input_dir.exists():
+        return jsonify({"ok": False, "error": "Scenario does not exist"}), 404
+
+    jobs_path = input_dir / "jobs.xlsx"
+    shifts_path = input_dir / "shifts.xlsx"
+
+    def file_info(path: Path):
+        if not path.exists():
+            return None
+        return {
+            "exists": True,
+            "size_kb": round(path.stat().st_size / 1024, 2),
+            "last_modified": path.stat().st_mtime
+        }
+
+    return jsonify({
+        "ok": True,
+        "scenario": scenario_name,
+        "jobs": file_info(jobs_path),
+        "shifts": file_info(shifts_path)
+    })

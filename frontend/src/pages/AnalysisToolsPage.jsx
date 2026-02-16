@@ -25,6 +25,7 @@ import MachineContextPage from "./MachineContextPage";
 import UtilizationPage from "./UtilizationPage";
 import IdleTimePage from "./IdleTimePage";
 import HeatmapPage from "./HeatmapPage";
+import UnifiedGanttPage from "./UnifiedGanttPage";
 
 const ALL_SENTINEL = "__ALL__";
 
@@ -253,7 +254,7 @@ export default function AnalysisToolsPage() {
         <Routes>
           <Route
             path="gantt"
-            element={<GanttPage onOpenFilters={() => setOpenFilters(true)} />}
+            element={<UnifiedGanttPage onOpenFilters={() => setOpenFilters(true)} />}
           />
           <Route
             path="order-routing"

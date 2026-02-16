@@ -16,6 +16,10 @@ import {
   DialogContent,
   DialogTitle,
 } from "@mui/material";
+import SettingsIcon from "@mui/icons-material/Settings";
+import ScenarioSettingsDialog from "../components/ScenarioSettingsDialog";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import CreateWhatIfDialog from "../components/CreateWhatIfDialog";
 import {
   AddCircle,
   CheckCircle,
@@ -38,7 +42,9 @@ export default function ScenarioListPage() {
 
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
-
+  // Add after existing state declarations
+const [settingsTarget, setSettingsTarget] = useState(null);
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
   // DELETE dialog state
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -156,6 +162,26 @@ export default function ScenarioListPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      {/* SETTINGS DIALOG */}
+      <ScenarioSettingsDialog
+        scenario={settingsTarget}
+        open={!!settingsTarget}
+        onClose={() => setSettingsTarget(null)}
+        onSave={() => {
+          setSettingsTarget(null);
+          refreshScenarios();
+        }}
+      />
+      {/* WHAT-IF DIALOG */}
+<CreateWhatIfDialog
+  open={whatIfOpen}
+  onClose={() => setWhatIfOpen(false)}
+  onCreate={(newScenario) => {
+    // Set as active and refresh list
+    setScenario(newScenario);
+    refreshScenarios();
+  }}
+/>
 
       <PageLayout
         title="Scheduler-Szenarien"
@@ -237,6 +263,27 @@ export default function ScenarioListPage() {
             )}
           </CardContent>
         </Card>
+        {/* WHAT-IF BUTTON - Add after create card, before scenario list */}
+<Box sx={{ mb: 3, display: "flex", justifyContent: "flex-end" }}>
+  <Button
+    variant="outlined"
+    startIcon={<AccountTreeIcon />}
+    onClick={() => setWhatIfOpen(true)}
+    sx={{
+      borderColor: "#2563eb",
+      color: "#2563eb",
+      borderRadius: 3,
+      fontWeight: 800,
+      px: 3,
+      "&:hover": {
+        borderColor: "#1d4ed8",
+        bgcolor: "#eff6ff",
+      },
+    }}
+  >
+    What-If Szenario Erstellen
+  </Button>
+</Box>
 
         {/* LIST HEADER */}
         <Typography
@@ -299,6 +346,29 @@ export default function ScenarioListPage() {
                 >
                   <DeleteIcon color="error" />
                 </IconButton>
+                {/* SETTINGS BUTTON - Add this after delete button */}
+<IconButton
+   onClick={(e) => {
+    console.log("Settings clicked for:", s);  // Debug log
+    e.stopPropagation();
+    e.preventDefault();
+    setSettingsTarget(s);
+    console.log("settingsTarget set to:", s);  // Debug log
+  }}
+  sx={{
+    position: "absolute",
+    top: 8,
+    right: 48,
+    opacity: 0,
+    transition: "0.15s",
+    bgcolor: "white",
+    zIndex: 100,  // ← ADD THIS LINE
+    "&:hover": { bgcolor: "#dbeafe" },
+    ".MuiCard-root:hover &": { opacity: 1 },
+  }}
+>
+  <SettingsIcon sx={{ color: "#2563eb" }} />
+</IconButton>
 
                 <CardContent sx={{ textAlign: "center", py: 3.25 }}>
                   <Typography
