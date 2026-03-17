@@ -16,6 +16,7 @@ import KpiLogAssistantPage from "./pages/KpiLogAssistantPage";
 
 /* ---------------- Analysis Tools ---------------- */
 import AnalysisToolsPage from "./pages/AnalysisToolsPage";
+import { GanttStorageProvider } from "./context/GanttStorageContext";
 
 /* ---------------- Reports ---------------- */
 import PlanTablePage from "./pages/PlanTablePage";
@@ -31,40 +32,42 @@ import TopNavBar from "./navigation/TopNavBar";
 export default function App() {
   return (
     <ScenarioProvider>
-      <SelectionProvider>
-        <BrowserRouter>
-          <TopNavBar />
+        <GanttStorageProvider>
+            <SelectionProvider>
+                <BrowserRouter>
+                    <TopNavBar />
 
-          <Routes>
-            <Route path="/" element={<ScenarioListPage />} />
-            <Route path="/upload" element={<FileUploadPage />} />
-            <Route path="/schedule" element={<SchedulingPage />} />
+                    <Routes>
+                        <Route path="/" element={<ScenarioListPage />} />
+                        <Route path="/upload" element={<FileUploadPage />} />
+                        <Route path="/schedule" element={<SchedulingPage />} />
 
-            {/* KPIs */}
-            <Route path="/kpis/summary" element={<KpiPage />} />
-            <Route path="/kpis/late-ops" element={<KpiLateOpsPage />} />
-            <Route path="/kpis/log-assistant" element={<KpiLogAssistantPage />} />
+                        {/* KPIs */}
+                        <Route path="/kpis/summary" element={<KpiPage />} />
+                        <Route path="/kpis/late-ops" element={<KpiLateOpsPage />} />
+                        <Route path="/kpis/log-assistant" element={<KpiLogAssistantPage />} />
 
-            {/* Analysis Tools */}
-            <Route
-              path="/analysis/*"
-              element={
-                <GlobalFiltersProvider>
-                  <AnalysisToolsPage />
-                </GlobalFiltersProvider>
-              }
-            />
+                        {/* Analysis Tools */}
+                        <Route
+                            path="/analysis/*"
+                            element={
+                            <GlobalFiltersProvider>
+                                <AnalysisToolsPage />
+                            </GlobalFiltersProvider>
+                            }
+                        />
 
-            {/* Reports */}
-            <Route path="/reports/plan" element={<PlanTablePage />} />
-            <Route path="/reports/late-ops" element={<LateOpsReportPage />} />
-            <Route path="/reports/missing-rt10" element={<MissingRt10Page />} />
-            <Route path="/reports/unplaced" element={<UnplacedPage />} />
-            <Route path="/reports/shift" element={<ShiftInjectionsPage />} />
-            <Route path="/reports/delivery" element={<DeliveryReportPage />} />
-          </Routes>
-        </BrowserRouter>
-      </SelectionProvider>
+                        {/* Reports */}
+                        <Route path="/reports/plan" element={<PlanTablePage />} />
+                        <Route path="/reports/late-ops" element={<LateOpsReportPage />} />
+                        <Route path="/reports/missing-rt10" element={<MissingRt10Page />} />
+                        <Route path="/reports/unplaced" element={<UnplacedPage />} />
+                        <Route path="/reports/shift" element={<ShiftInjectionsPage />} />
+                        <Route path="/reports/delivery" element={<DeliveryReportPage />} />
+                    </Routes>
+                </BrowserRouter>
+            </SelectionProvider>
+        </GanttStorageProvider>
     </ScenarioProvider>
   );
 }

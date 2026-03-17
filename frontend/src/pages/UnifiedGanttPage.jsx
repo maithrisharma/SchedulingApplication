@@ -1,11 +1,4 @@
 // src/pages/UnifiedGanttPage.jsx
-// OPTION B: Tabs Below Plantafel
-// - Plantafel always visible (full height)
-// - Click job → Single tabbed panel appears below
-// - Tabs: Maschinenkontext | Maschinenrouting
-// - Can close panel completely
-// - Less scrolling (single panel)
-
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Box,
@@ -38,6 +31,7 @@ import KpiComparison from "../components/KpiComparison";
 
 import { useScenario } from "../context/ScenarioContext";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
+import { useGanttStorage } from "../context/GanttStorageContext";
 import {
   apiGet,
   apiSavePlanChanges,
@@ -57,6 +51,7 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
   const { scenario, setScenario } = useScenario();
   const { setSelection, setGanttZoom, ganttZoom, selection } = useSelection();
   const { filters, setMachineList } = useGlobalFilters();
+  const { saveDraftToStorage, loadDraftFromStorage, clearDraftFromStorage } = useGanttStorage();
 
   const [toast, setToast] = useState({ open: false, msg: "" });
   const [machineOrder, setMachineOrder] = useState([]);
@@ -79,11 +74,7 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
   const [contextTab, setContextTab] = useState(0); // 0=Kontext, 1=Routing
   const [showContextPanel, setShowContextPanel] = useState(false);
 
-  const [viewDomain, setViewDomain] = useState({
-    start: new Date(),
-    end: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-  });
-
+  const [viewDomain, setViewDomain] = useState(null);
   const [viewportHeight, setViewportHeight] = useState(
     typeof window !== "undefined" ? window.innerHeight : 900
   );
@@ -101,8 +92,27 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
 
     apiGet(`/visualize/${scenario}`)
       .then((res) => {
-        setPlan(res.plan || []);
-        setDraftPlan(res.plan || []);
+        const basePlan = res.plan || [];
+        setPlan(basePlan);
+
+        // Try to restore from storage
+        const stored = loadDraftFromStorage(scenario);
+        if (stored && stored.draftPlan && stored.draftPlan.length > 0) {
+          console.log("[GANTT] Restoring:", `${Object.keys(stored.dirtyMap).length} changes`);
+          setDraftPlan(stored.draftPlan);
+          setDirtyMap(stored.dirtyMap);
+          setSavedOverrideCount(stored.savedOverrideCount);
+          // ✅ ONLY show toast if there are actual changes (not 0)
+          if (Object.keys(stored.dirtyMap).length > 0) {
+            setToast({
+              open: true,
+              msg: `${Object.keys(stored.dirtyMap).length} gespeicherte Änderungen wiederhergestellt`
+            });
+          }
+        } else {
+          setDraftPlan(basePlan);
+        }
+
         setMachineList(res.machines || []);
         setMachineOrder((res.machines || []).map(String));
         setTop10(res.top10_machines || []);
@@ -114,6 +124,29 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
       .catch(() => setErr("Daten konnten nicht geladen werden."))
       .finally(() => setLoading(false));
   }, [scenario, setMachineList]);
+  // ✅ ADD THIS ENTIRE useEffect (2 weeks from earliest job)
+  useEffect(() => {
+    if (!plan || plan.length === 0) return;
+
+    // Find earliest job start date
+    let earliest = null;
+
+    for (const job of plan) {
+      const start = new Date(job.Start);
+      if (!earliest || start < earliest) {
+        earliest = start;
+      }
+    }
+
+    if (earliest) {
+      // Show 2 weeks from earliest job
+      const twoWeeksMs = 14 * 24 * 60 * 60 * 1000;
+      setViewDomain({
+        start: earliest,
+        end: new Date(earliest.getTime() + twoWeeksMs),
+      });
+    }
+  }, [plan]);
 
   // Track dirty changes
   useEffect(() => {
@@ -147,6 +180,11 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
 
     setDirtyMap(nextDirty);
   }, [plan, draftPlan]);
+  // ✅ ADD THIS ENTIRE useEffect
+  useEffect(() => {
+    if (!scenario || draftPlan.length === 0) return;
+    saveDraftToStorage(scenario, draftPlan, dirtyMap, savedOverrideCount);
+  }, [scenario, draftPlan, dirtyMap, savedOverrideCount, saveDraftToStorage]);
 
   // Filter plan
   const filteredPlan = useMemo(() => {
@@ -225,6 +263,7 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
 
   const resetAll = async () => {
     setDraftPlan(plan);
+    setDirtyMap({});
     if (savedOverrideCount > 0) {
       try {
         await apiDiscardOverrides(scenario);
@@ -233,7 +272,38 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
         console.error("Failed to discard overrides:", e);
       }
     }
+    clearDraftFromStorage(scenario);
     setToast({ open: true, msg: "Zurückgesetzt." });
+  };
+  const saveChangesOnly = async () => {
+    const changes = Object.values(dirtyMap).map((x) => ({
+      job_id: x.jobId,
+      WorkPlaceNo: x.next.WorkPlaceNo,
+      Start: x.next.Start,
+      End: x.next.End,
+    }));
+
+    if (changes.length === 0) return;
+
+    try {
+      setLoading(true);
+      await apiSavePlanChanges(scenario, changes);
+
+      const newSavedCount = savedOverrideCount + changes.length;
+      setSavedOverrideCount(newSavedCount);
+      setDirtyMap({});
+
+      // ✅ CRITICAL: Immediately update storage with cleared dirtyMap
+      // This prevents timing issues when user navigates away quickly
+      saveDraftToStorage(scenario, draftPlan, {}, newSavedCount);
+
+      setToast({ open: true, msg: `${changes.length} Änderungen gespeichert.` });
+    } catch (e) {
+      console.error(e);
+      setToast({ open: true, msg: "Fehler beim Speichern." });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const generateCandidate = async () => {
@@ -285,6 +355,7 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
       setCandidatePlan(null);
       setSavedOverrideCount(0);
       setKpiComparison(null);
+      clearDraftFromStorage(scenario);
 
       setDrawerTab(0);
       setActionPanelOpen(false);
@@ -307,6 +378,7 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
       setDraftPlan(plan);
       setSavedOverrideCount(0);
       setKpiComparison(null);
+      clearDraftFromStorage(scenario);
 
       setDrawerTab(0);
       setActionPanelOpen(false);
@@ -641,6 +713,27 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
 
         {!candidatePlan && (
           <Box>
+              {/* ✅ ADD: Manual save button */}
+            {Object.keys(dirtyMap).length > 0 && savedOverrideCount === 0 && (
+              <Button
+                fullWidth
+                variant="contained"
+                size="medium"
+                onClick={saveChangesOnly}
+                disabled={loading}
+                sx={{
+                  bgcolor: "#10b981",
+                  color: "white",
+                  fontWeight: 700,
+                  mb: 2,
+                  "&:hover": { bgcolor: "#059669" },
+                  textTransform: "none",
+                }}
+              >
+                💾 Änderungen speichern ({Object.keys(dirtyMap).length})
+              </Button>
+            )}
+
             {hasChanges && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 {Object.keys(dirtyMap).length > 0 && (
@@ -691,7 +784,7 @@ export default function UnifiedGanttPage({ onOpenFilters }) {
           <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
             <Alert severity="success" sx={{ mb: 2 }}>
               <Typography variant="body2" fontWeight={600}>
-                ✅ Kandidat bereit
+                ✅ Neuer Plan bereit
               </Typography>
             </Alert>
 

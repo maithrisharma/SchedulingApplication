@@ -17,6 +17,15 @@ from scheduler_state import (
     cancel_flag,
     get_lock,
 )
+from scheduler_core.config import (
+    DEFAULT_WEIGHTS,
+    SA_ENABLED,
+    SA_ITERS,
+    SA_INIT_TEMP,
+    SA_COOLING,
+    SA_STEP_SCALE,
+    SA_SEED,
+)
 
 schedule_bp = Blueprint("schedule", __name__, url_prefix="/api/schedule")
 CANDIDATE_SUFFIX = "_candidate"
@@ -62,7 +71,17 @@ def _successor_closure(seed_ids: set, succ_multi: dict) -> set:
 # ----------------------------------------
 # INTERNAL WORKER FUNCTION (runs in thread)
 # ----------------------------------------
-def run_scheduler_background(scenario, required_files, output_dir):
+def run_scheduler_background(scenario, required_files, output_dir, weights=None, sa_config=None):
+    """
+    Worker function that runs in background thread.
+
+    Args:
+        scenario: Scenario name
+        required_files: Dict of cleaned file paths
+        output_dir: Output directory path
+        weights: Optional dict of weight parameters (uses DEFAULT_WEIGHTS if None)
+        sa_config: Optional dict of SA parameters (uses config.py defaults if None)
+    """
 
     def update_progress(p: int):
         progress[scenario] = int(p)
@@ -71,6 +90,17 @@ def run_scheduler_background(scenario, required_files, output_dir):
     try:
         print(f"[ENGINE] Background scheduler START for {scenario}")
 
+        # Log configuration
+        if weights:
+            print(f"[CONFIG] Using custom weights")
+        else:
+            print(f"[CONFIG] Using default weights from config.py")
+
+        if sa_config:
+            print(f"[CONFIG] Using custom SA config: iterations={sa_config.get('iterations', SA_ITERS)}")
+        else:
+            print(f"[CONFIG] Using default SA config from config.py")
+
         results = run_scheduler_with_paths(
             required_files["jobs_clean.csv"],
             required_files["shifts_clean.csv"],
@@ -78,6 +108,8 @@ def run_scheduler_background(scenario, required_files, output_dir):
             required_files["outsourcing_machines.csv"],
             output_dir,
             scenario_name=scenario,
+            weights=weights,  # NEW: Pass weights
+            sa_config=sa_config,  # NEW: Pass SA config
             progress_callback=update_progress,
         )
 
@@ -153,6 +185,36 @@ def start_scheduler(scenario_name):
     scenario = scenario_name
     print(f"[API] /schedule/start/{scenario} called")
 
+    # Parse request body for configuration
+    data = request.get_json(silent=True) or {}
+
+    # Extract weights configuration
+    weights = data.get("weights")
+    if weights is not None:
+        # Validate weights - only keep known keys
+        valid_keys = set(DEFAULT_WEIGHTS.keys())
+        weights = {k: v for k, v in weights.items() if k in valid_keys}
+        # Fill missing weights with defaults
+        for key in valid_keys:
+            if key not in weights:
+                weights[key] = DEFAULT_WEIGHTS[key]
+        print(
+            f"[API] Using custom weights: w_has_ddl={weights.get('w_has_ddl')}, w_priority={weights.get('w_priority')}")
+
+    # Extract SA configuration
+    sa_config = data.get("sa_config")
+    if sa_config is not None:
+        # Validate and set defaults
+        sa_config = {
+            "enabled": sa_config.get("enabled", SA_ENABLED),
+            "iterations": max(1, min(100, sa_config.get("iterations", SA_ITERS))),  # Clamp 1-100
+            "initial_temp": max(0.1, min(10.0, sa_config.get("initial_temp", SA_INIT_TEMP))),
+            "cooling": max(0.8, min(0.99, sa_config.get("cooling", SA_COOLING))),
+            "step_scale": max(0.1, min(1.0, sa_config.get("step_scale", SA_STEP_SCALE))),
+            "seed": sa_config.get("seed", SA_SEED),
+        }
+        print(f"[API] Using custom SA config: {sa_config['iterations']} iterations, temp={sa_config['initial_temp']}")
+
     base = Path("scenarios") / scenario
     if not base.exists():
         return jsonify({"ok": False, "error": "Scenario does not exist"}), 404
@@ -180,9 +242,11 @@ def start_scheduler(scenario_name):
         cancel_flag[scenario] = False
         progress[scenario] = 0
 
+    # Start background thread with configuration
     t = Thread(
         target=run_scheduler_background,
         args=(scenario, required_files, output_dir),
+        kwargs={"weights": weights, "sa_config": sa_config},  # NEW: Pass config
         daemon=True
     )
     t.start()

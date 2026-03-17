@@ -265,8 +265,7 @@ def clean_jobs(input_excel_path: str, output_dir: str) -> dict:
     jobs.loc[jobs["IsNonBottleneck"], "PriorityGroup"] = 1
     jobs.loc[jobs["IsBottleneck"], "PriorityGroup"] = 0
 
-    print("PriorityGroup for 816-04 — counts:")
-    print(jobs.loc[jobs["WorkPlaceNo"] == "816-04", "PriorityGroup"].value_counts(dropna=False))
+
 
     # UNLIMITED / OUTSOURCING MACHINE DETECTION
     if "BottleNeckPos" not in jobs.columns:
@@ -382,13 +381,7 @@ def clean_jobs(input_excel_path: str, output_dir: str) -> dict:
         pd.NA, False, ""
     ]
 
-    print("Material flags summary:")
-    print(
-        jobs.loc[is_mat, [
-            "RecordType", "PurchasedItem", "ProducedItem",
-            "MaterialAvailableNow", "MaterialNeedsUpstream"
-        ]].value_counts(dropna=False)
-    )
+
 
 
     # ATTACH MATERIAL UPSTREAM TO NEXT SCHEDULABLE OP

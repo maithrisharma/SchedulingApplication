@@ -18,9 +18,11 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import DownloadIcon from "@mui/icons-material/Download";
 
 import PartImage from "../assets/image.png";
+import MoveConfirmationDialog from "./MoveConfirmationDialog";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_SPAN_MS = 60 * 60 * 1000;
+const DRAG_THRESHOLD = 5;
 function getWeekendDates(startDate, endDate) {
   const weekends = [];
 
@@ -182,6 +184,15 @@ const jobById = useMemo(() => {
   }
   return m;
 }, [allJobs]);
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    jobId: null,
+    auftrag: null,
+    originalStart: null,
+    newStart: null,
+    onConfirm: null,
+  });
 
 const [invalidById, setInvalidById] = useState({});
 const setInvalid = useCallback((jobId, isInvalid) => {
@@ -392,6 +403,16 @@ const setInvalid = useCallback((jobId, isInvalid) => {
     const onPointerMove = (e) => {
       const d = dragRef.current;
       if (!d) return;
+      const deltaX = e.clientX - d.clientX0;
+      const deltaY = e.clientY - d.clientY0;
+
+      // Only start dragging if moved more than 5 pixels
+
+      const totalMovement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+      if (totalMovement < DRAG_THRESHOLD) {
+        return; // Not a drag, just a click
+      }
 
       const sx = downPtRef.current.x;
       const sy = downPtRef.current.y;
@@ -503,9 +524,48 @@ setInvalid(d.jobId, invalidPreds.length > 0);
             };
           })
         );
-        setInvalid(d.jobId, false);   // ✅ clear red border after valid drop
+        setInvalid(d.jobId, false);
+        clearGhostMachine(d.jobId);
 
+        setTimeout(() => {
+          dragMovedRef.current = false;
+        }, 0);
+        return; // Stop here - machine change not allowed
       }
+
+      // If we got here, move is valid - ask for confirmation
+      const timeChanged = d.lastStartMs !== d.origStartMs || d.lastEndMs !== d.origEndMs;
+
+      if (timeChanged) {
+        const job = jobById.get(String(d.jobId));
+
+        // Show confirmation dialog
+        setConfirmDialog({
+          open: true,
+          jobId: d.jobId,
+          auftrag: job?.job_id || job?.Auftrag,
+          originalStart: d.origStartMs,
+          newStart: d.lastStartMs,
+          onConfirm: () => {
+            setConfirmDialog({ open: false, jobId: null, auftrag: null, originalStart: null, newStart: null, onConfirm: null });
+          },
+          onCancel: () => {
+            // User cancelled - revert
+            setDraftPlan?.((prev) =>
+              prev.map((r) => {
+                if (getId(r) !== String(d.jobId)) return r;
+                return {
+                  ...r,
+                  Start: formatNaive(d.origStartMs),
+                  End: formatNaive(d.origEndMs),
+                };
+              })
+            );
+            setConfirmDialog({ open: false, jobId: null, auftrag: null, originalStart: null, newStart: null, onConfirm: null });
+          },
+        });
+      }
+
       setInvalid(d.jobId, false);
       clearGhostMachine(d.jobId);
 
@@ -1194,6 +1254,19 @@ if (highlightOrder) {
           </TooltipInPortal>
         )}
       </div>
+      <MoveConfirmationDialog
+        open={confirmDialog.open}
+        onClose={() => {
+          if (confirmDialog.onCancel) confirmDialog.onCancel();
+        }}
+        onConfirm={() => {
+          if (confirmDialog.onConfirm) confirmDialog.onConfirm();
+        }}
+        jobId={confirmDialog.jobId}
+        auftrag={confirmDialog.auftrag}
+        originalStart={confirmDialog.originalStart}
+        newStart={confirmDialog.newStart}
+      />
     </div>
   );
 }

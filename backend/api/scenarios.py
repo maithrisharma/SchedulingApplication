@@ -38,6 +38,7 @@ def create_scenario_folder(base_path: Path, scenario_name: str = None):
         "mode": "real_time",
         "now": None,
         "freeze_horizon_hours": 0,
+        "freeze_pg2": False,
         "policy_version": "v1",
         "notes": ""
     }

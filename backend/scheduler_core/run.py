@@ -162,9 +162,10 @@ def run_scheduler_with_paths(
     scenario_name=None,
     weights=None,
     progress_callback=None,
-    locked_ops=None,        # <-- ADD
-    pinned_starts=None,     # <-- ADD
+    locked_ops=None,
+    pinned_starts=None,
     sa_enabled=None,
+    sa_config=None,        # NEW: Add SA config parameter
     preview_only=False,
     now_ts=None
 ):
@@ -193,6 +194,28 @@ def run_scheduler_with_paths(
         "freeze_pg2": bool(cfg.get("freeze_pg2", False)),
         "notes": cfg.get("notes", ""),
     }
+    # Extract SA configuration
+    if sa_config is None:
+        sa_iters = SA_ITERS
+        sa_init_temp = SA_INIT_TEMP
+        sa_cooling = SA_COOLING
+        sa_step_scale = SA_STEP_SCALE
+        sa_seed = SA_SEED
+        use_sa_enabled = SA_ENABLED
+    else:
+        sa_iters = sa_config.get("iterations", SA_ITERS)
+        sa_init_temp = sa_config.get("initial_temp", SA_INIT_TEMP)
+        sa_cooling = sa_config.get("cooling", SA_COOLING)
+        sa_step_scale = sa_config.get("step_scale", SA_STEP_SCALE)
+        sa_seed = sa_config.get("seed", SA_SEED)
+        use_sa_enabled = sa_config.get("enabled", SA_ENABLED)
+
+    # Store in run_meta for tracking
+    run_meta["sa_enabled"] = use_sa_enabled
+    run_meta["sa_iterations"] = sa_iters
+    run_meta["sa_initial_temp"] = sa_init_temp
+    run_meta["sa_cooling"] = sa_cooling
+    run_meta["sa_step_scale"] = sa_step_scale
 
     freeze_h = int(cfg.get("freeze_horizon_hours", 0) or 0)
     latest_plan_path = latest_dir / "plan.csv"
@@ -378,11 +401,17 @@ def run_scheduler_with_paths(
 
     update(25)
 
-    use_sa = SA_ENABLED if sa_enabled is None else bool(sa_enabled)
+    # Determine if SA is enabled
+    if sa_enabled is not None:
+        use_sa = bool(sa_enabled)  # Explicit override
+    else:
+        use_sa = use_sa_enabled  # From config or sa_config parameter
     if use_sa:
 
-        print("[ENGINE] Starting Simulated Annealing...")
-        temp = SA_INIT_TEMP
+        print(
+            f"[ENGINE] Starting Simulated Annealing: {sa_iters} iterations (temp={sa_init_temp}, cooling={sa_cooling})")
+        random.seed(sa_seed)  # Set seed for reproducibility
+        temp = sa_init_temp
         cur_w = base_weights.copy()
         cur_plan, cur_late, cur_unplaced, cur_score = (
             best_plan,
@@ -391,9 +420,9 @@ def run_scheduler_with_paths(
             best_score,
         )
 
-        for it in range(SA_ITERS):
+        for it in range(sa_iters):
             iter_start = time.time()
-            print(f"[SA] Iter {it+1}/{SA_ITERS}, Temp={temp:.3f}")
+            print(f"[SA] Iter {it+1}/{sa_iters}, Temp={temp:.3f}")
 
             # CHECK FOR CANCELLATION
             current_flag = cancel_flag.get(scenario_name)
@@ -402,7 +431,7 @@ def run_scheduler_with_paths(
                 print(f"[SA] CANCEL detected during SA iteration {it+1}")
                 return early_cancel()
 
-            cand_w = jitter_weights(cur_w, SA_STEP_SCALE)
+            cand_w = jitter_weights(cur_w, sa_step_scale)
             plan, late, unplaced, sc, pred_sets_iter = run_once(
                 jobs, shifts, unlimited, outsourcing, cand_w,
                 now_ts=now_ts,
@@ -443,8 +472,8 @@ def run_scheduler_with_paths(
                 pred_sets = pred_sets_iter
                 print(f"[SA] NEW BEST SCORE: {best_score}")
 
-            update(30 + int((it / SA_ITERS) * 50))
-            temp *= SA_COOLING
+            update(30 + int((it / sa_iters) * 50))
+            temp *= sa_cooling
 
     update(85)
 

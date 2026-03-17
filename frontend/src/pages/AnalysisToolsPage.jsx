@@ -19,7 +19,6 @@ import {
 import { Close } from "@mui/icons-material";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
 
-import GanttPage from "./GanttPage";
 import OrderRoutingPage from "./OrderRoutingPage";
 import MachineContextPage from "./MachineContextPage";
 import UtilizationPage from "./UtilizationPage";
@@ -99,158 +98,181 @@ export default function AnalysisToolsPage() {
           sx: {
             width: 330,
             bgcolor: "white",
-            p: 3,
+            p: 2, // ✅ smaller padding
             borderRight: "1px solid #e2e8f0",
+            display: "flex",
+            flexDirection: "column",
+            gap: 1, // ✅ consistent smaller spacing
           },
         }}
       >
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
+        {/* Header */}
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Typography variant="h6" fontWeight={800}>
             Globale Filter
           </Typography>
-          <Button onClick={() => setOpenFilters(false)}>
+          <Button onClick={() => setOpenFilters(false)} sx={{ minWidth: 36, px: 1 }}>
             <Close />
           </Button>
         </Box>
 
-        <Divider sx={{ mb: 3 }} />
+        <Divider />
 
-        {/* MASCHINENWAHL */}
-        <Typography fontWeight={600} mb={1}>
-          Maschine
-        </Typography>
+        {/* ✅ Scroll area (only controls scroll, buttons stay visible) */}
+        <Box sx={{ flex: 1, overflowY: "auto", pr: 0.5 }}>
+          {/* MASCHINENWAHL */}
+          <Typography fontWeight={600} mb={0.5}>
+            Maschine
+          </Typography>
 
-        <Select
-          fullWidth
-          multiple
-          displayEmpty
-          value={local.machines}
-          onChange={handleMachineChange}
-          renderValue={renderMachineValue}
-          sx={{ minHeight: 48 }}
-        >
-          <MenuItem value={ALL_SENTINEL}>
-            <Checkbox checked={local.machines.includes(ALL_SENTINEL)} />
-            <ListItemText primary="Alle Maschinen" />
-          </MenuItem>
-
-          {machineList.map((m) => (
-            <MenuItem key={m} value={m}>
-              <Checkbox checked={local.machines.includes(m)} />
-              <ListItemText primary={m} />
+          <Select
+            fullWidth
+            size="small" // ✅ smaller
+            multiple
+            displayEmpty
+            value={local.machines}
+            onChange={handleMachineChange}
+            renderValue={renderMachineValue}
+            sx={{ minHeight: 40 }} // ✅ smaller height
+          >
+            <MenuItem value={ALL_SENTINEL}>
+              <Checkbox size="small" checked={local.machines.includes(ALL_SENTINEL)} />
+              <ListItemText primary="Alle Maschinen" />
             </MenuItem>
-          ))}
-        </Select>
 
-        <Box mt={3} />
+            {machineList.map((m) => (
+              <MenuItem key={m} value={m}>
+                <Checkbox size="small" checked={local.machines.includes(m)} />
+                <ListItemText primary={m} />
+              </MenuItem>
+            ))}
+          </Select>
 
-        {/* PRIORITÄT */}
-        <Typography fontWeight={600} mb={1}>
-          Prioritätsgruppe
-        </Typography>
-        <Select
-          fullWidth
-          value={local.priority}
-          onChange={(e) => setLocal({ ...local, priority: e.target.value })}
-        >
-          <MenuItem value="all">Alle Prioritäten</MenuItem>
-          <MenuItem value="0">BottleNeck Maschinen</MenuItem>
-          <MenuItem value="1">NonBottleNeck Maschinen</MenuItem>
-          <MenuItem value="2">Unbegrenzt</MenuItem>
-        </Select>
+          <Box mt={1.5} />
 
-        <Box mt={3} />
-
-        {/* OUTSOURCING */}
-        <Typography fontWeight={600} mb={1}>
-          Outsourcing
-        </Typography>
-        <Select
-          fullWidth
-          value={local.outsourcing}
-          onChange={(e) => setLocal({ ...local, outsourcing: e.target.value })}
-        >
-          <MenuItem value="all">Alle Aufträge</MenuItem>
-          <MenuItem value="outs">Nur Outsourcing</MenuItem>
-        </Select>
-
-        <Box mt={3} />
-
-        {/* DEADLINE */}
-        <Typography fontWeight={600} mb={1}>
-          Deadline-Filter
-        </Typography>
-        <Select
-          fullWidth
-          value={local.deadline}
-          onChange={(e) => setLocal({ ...local, deadline: e.target.value })}
-        >
-          <MenuItem value="all">Alle Aufträge</MenuItem>
-          <MenuItem value="late">Nur verspätete</MenuItem>
-          <MenuItem value="hasDeadline">Mit Deadline</MenuItem>
-        </Select>
-
-        <Box mt={3} />
-
-        {/* DATUMSBEFEHL */}
-        <Typography fontWeight={600} mb={1}>
-          Datumsbereich
-        </Typography>
-
-        <Stack direction="row" spacing={2}>
-          <TextField
-            type="date"
-            label="Von"
-            InputLabelProps={{ shrink: true }}
-            value={local.dateStart || ""}
-            onChange={(e) => setLocal({ ...local, dateStart: e.target.value })}
+          {/* PRIORITÄT */}
+          <Typography fontWeight={600} mb={0.5}>
+            Prioritätsgruppe
+          </Typography>
+          <Select
             fullWidth
-          />
+            size="small" // ✅ smaller
+            value={local.priority}
+            onChange={(e) => setLocal({ ...local, priority: e.target.value })}
+            sx={{ minHeight: 40 }}
+          >
+            <MenuItem value="all">Alle Prioritäten</MenuItem>
+            <MenuItem value="0">BottleNeck Maschinen</MenuItem>
+            <MenuItem value="1">NonBottleNeck Maschinen</MenuItem>
+            <MenuItem value="2">Unbegrenzt</MenuItem>
+          </Select>
 
-          <TextField
-            type="date"
-            label="Bis"
-            InputLabelProps={{ shrink: true }}
-            value={local.dateEnd || ""}
-            onChange={(e) => setLocal({ ...local, dateEnd: e.target.value })}
+          <Box mt={1.5} />
+
+          {/* OUTSOURCING */}
+          <Typography fontWeight={600} mb={0.5}>
+            Outsourcing
+          </Typography>
+          <Select
             fullWidth
-          />
-        </Stack>
+            size="small" // ✅ smaller
+            value={local.outsourcing}
+            onChange={(e) => setLocal({ ...local, outsourcing: e.target.value })}
+            sx={{ minHeight: 40 }}
+          >
+            <MenuItem value="all">Alle Aufträge</MenuItem>
+            <MenuItem value="outs">Nur Outsourcing</MenuItem>
+          </Select>
 
-        <Button
-          variant="contained"
-          fullWidth
-          sx={{ mt: 4, borderRadius: 2, py: 1.2 }}
-          onClick={handleApply}
-        >
-          Filter anwenden
-        </Button>
+          <Box mt={1.5} />
 
-        <Button
-          variant="outlined"
-          fullWidth
-          sx={{ mt: 2, borderRadius: 2, py: 1.2 }}
-          onClick={clearAllFilters}
-        >
-          Filter zurücksetzen
-        </Button>
+          {/* DEADLINE */}
+          <Typography fontWeight={600} mb={0.5}>
+            Deadline-Filter
+          </Typography>
+          <Select
+            fullWidth
+            size="small" // ✅ smaller
+            value={local.deadline}
+            onChange={(e) => setLocal({ ...local, deadline: e.target.value })}
+            sx={{ minHeight: 40 }}
+          >
+            <MenuItem value="all">Alle Aufträge</MenuItem>
+            <MenuItem value="late">Nur verspätete</MenuItem>
+            <MenuItem value="hasDeadline">Mit Deadline</MenuItem>
+          </Select>
+
+          <Box mt={1.5} />
+
+          {/* DATUMSBEREICH */}
+          <Typography fontWeight={600} mb={0.5}>
+            Datumsbereich
+          </Typography>
+
+          <Stack direction="row" spacing={1.5}>
+            <TextField
+              size="small" // ✅ smaller
+              type="date"
+              label="Von"
+              InputLabelProps={{ shrink: true }}
+              value={local.dateStart || ""}
+              onChange={(e) => setLocal({ ...local, dateStart: e.target.value })}
+              fullWidth
+            />
+
+            <TextField
+              size="small" // ✅ smaller
+              type="date"
+              label="Bis"
+              InputLabelProps={{ shrink: true }}
+              value={local.dateEnd || ""}
+              onChange={(e) => setLocal({ ...local, dateEnd: e.target.value })}
+              fullWidth
+            />
+          </Stack>
+
+          {/* small bottom padding so last field doesn't stick to sticky footer */}
+          <Box mt={1.5} />
+        </Box>
+
+        {/* ✅ Sticky footer actions */}
+        <Box sx={{ pt: 1, borderTop: "1px solid #e2e8f0", bgcolor: "white" }}>
+          <Button
+            variant="contained"
+            fullWidth
+            size="small"
+            sx={{ borderRadius: 2, py: 1 }}
+            onClick={handleApply}
+          >
+            Filter anwenden
+          </Button>
+
+          <Button
+            variant="outlined"
+            fullWidth
+            size="small"
+            sx={{ mt: 1, borderRadius: 2, py: 1 }}
+            onClick={clearAllFilters}
+          >
+            Filter zurücksetzen
+          </Button>
+        </Box>
       </Drawer>
 
       {/* ----------------------------------
               HAUPTBEREICH
       ----------------------------------- */}
       <Box
-  sx={{
-    flexGrow: 1,
-    width: "100%",
-    maxWidth: "100%",
-    overflowX: "hidden",
-    px: 0,
-    pt: 0,
-    pb: 0,
-  }}
->
-
+        sx={{
+          flexGrow: 1,
+          width: "100%",
+          maxWidth: "100%",
+          overflowX: "hidden",
+          px: 0,
+          pt: 0,
+          pb: 0,
+        }}
+      >
         <Routes>
           <Route
             path="gantt"
