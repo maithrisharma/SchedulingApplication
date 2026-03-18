@@ -38,6 +38,7 @@ def create_scenario_folder(base_path: Path, scenario_name: str = None):
         "mode": "real_time",
         "now": None,
         "freeze_horizon_hours": 0,
+        "freeze_horizon_by_workplace": {},
         "freeze_pg2": False,
         "policy_version": "v1",
         "notes": ""
@@ -185,6 +186,14 @@ def update_scenario_config(scenario):
     if freeze_hours < 0:
         return jsonify({"ok": False, "error": "freeze_horizon_hours must be >= 0"}), 400
 
+    # Validate freeze_horizon_by_workplace
+    freeze_by_wp = current_config.get("freeze_horizon_by_workplace", {})
+    if not isinstance(freeze_by_wp, dict):
+        return jsonify({"ok": False, "error": "freeze_horizon_by_workplace must be a dict"}), 400
+
+    for wp, hours in freeze_by_wp.items():
+        if not isinstance(hours, (int, float)) or hours < 0:
+            return jsonify({"ok": False, "error": f"Invalid freeze hours for workplace {wp}: must be >= 0"}), 400
     try:
         cfg_path.write_text(json.dumps(current_config, indent=2), encoding="utf-8")
     except Exception as e:
@@ -342,3 +351,29 @@ def list_scenarios_detailed():
     scenarios_list.sort(key=lambda x: x["name"])
 
     return jsonify({"ok": True, "scenarios": scenarios_list})
+
+
+@scenarios_bp.get("/<scenario>/workplaces")
+def get_scenario_workplaces(scenario):
+    """
+    GET /api/scenarios/<scenario>/workplaces
+    Returns list of unique workplaces from shifts
+    """
+    import pandas as pd
+
+    scenario_dir = Path("scenarios") / scenario
+    if not scenario_dir.exists():
+        return jsonify({"ok": False, "error": "Scenario not found"}), 404
+
+    cleaned_dir = scenario_dir / "cleaned"
+    shifts_path = cleaned_dir / "shifts_clean.csv"
+
+    if not shifts_path.exists():
+        return jsonify({"ok": False, "error": "shifts_clean.csv not found"}), 404
+
+    try:
+        shifts = pd.read_csv(shifts_path)
+        workplaces = sorted(shifts['WorkPlaceNo'].astype(str).str.strip().unique().tolist())
+        return jsonify({"ok": True, "workplaces": workplaces})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500

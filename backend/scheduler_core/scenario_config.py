@@ -7,6 +7,7 @@ DEFAULT_CFG = {
     "mode": "real_time",
     "now": None,
     "freeze_horizon_hours": 0,
+    "freeze_horizon_by_workplace": {},
     "freeze_pg2": False,
     "policy_version": "v1",
     "notes": ""

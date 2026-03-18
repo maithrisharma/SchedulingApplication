@@ -21,12 +21,16 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import CloseIcon from "@mui/icons-material/Close";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 
 export default function ScenarioSettingsDialog({ scenario, open, onClose, onSave }) {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [workplaces, setWorkplaces] = useState([]);
+  const [wpFreezeExpanded, setWpFreezeExpanded] = useState(false);
 
   useEffect(() => {
     if (!open || !scenario) return;
@@ -35,12 +39,20 @@ export default function ScenarioSettingsDialog({ scenario, open, onClose, onSave
     setError("");
     setConfig(null);
 
-    fetch(`/api/scenarios/${scenario}/config`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.ok) setConfig(data.config);
-        else setError(data.error);
-      })
+    Promise.all([
+      fetch(`/api/scenarios/${scenario}/config`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok) setConfig(data.config);
+          else setError(data.error);
+        }),
+
+      fetch(`/api/scenarios/${scenario}/workplaces`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok) setWorkplaces(data.workplaces);
+        })
+    ])
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [scenario, open]);
@@ -230,6 +242,134 @@ export default function ScenarioSettingsDialog({ scenario, open, onClose, onSave
               }
               sx={{ m: 0 }}
             />
+
+            {/* Per-Workplace Freeze Configuration */}
+            <Box sx={{ borderTop: "1px solid #e2e8f0", pt: 2 }}>
+              <Button
+                onClick={() => setWpFreezeExpanded(!wpFreezeExpanded)}
+                sx={{
+                  textTransform: "none",
+                  color: "#1e293b",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  p: 0,
+                  minWidth: "auto",
+                  "&:hover": { bgcolor: "transparent", color: "#2563eb" },
+                }}
+                endIcon={wpFreezeExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              >
+                Arbeitsplatz-spezifische Freeze-Horizonte
+              </Button>
+
+              {wpFreezeExpanded && (
+                <Box sx={{ mt: 2, pl: 2, borderLeft: "3px solid #e2e8f0" }}>
+                  <Alert severity="info" variant="outlined" sx={{ mb: 2, fontSize: "0.85rem" }}>
+                    Überschreibt den globalen Freeze-Horizon für ausgewählte Arbeitsplätze
+                  </Alert>
+
+                  <Stack spacing={2}>
+                    {workplaces.map((wp) => {
+                      const wpFreeze = config.freeze_horizon_by_workplace || {};
+                      const currentValue = wpFreeze[wp] !== undefined
+                        ? wpFreeze[wp]
+                        : config.freeze_horizon_hours;
+                      const isCustom = wpFreeze[wp] !== undefined;
+
+                      return (
+                        <Box key={wp}>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                            <Typography
+                              sx={{
+                                fontWeight: 600,
+                                fontSize: "0.85rem",
+                                minWidth: 80,
+                                color: isCustom ? "#2563eb" : "#64748b",
+                              }}
+                            >
+                              {wp}
+                            </Typography>
+                            <Chip
+                              label={`${currentValue} h`}
+                              size="small"
+                              sx={{
+                                bgcolor: isCustom ? "#dbeafe" : "#f1f5f9",
+                                color: isCustom ? "#1e40af" : "#64748b",
+                                fontWeight: 600,
+                                fontSize: "0.75rem",
+                              }}
+                            />
+                            {isCustom && (
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  const newWpFreeze = { ...wpFreeze };
+                                  delete newWpFreeze[wp];
+                                  setConfig({
+                                    ...config,
+                                    freeze_horizon_by_workplace: newWpFreeze,
+                                  });
+                                }}
+                                sx={{
+                                  ml: "auto",
+                                  color: "#64748b",
+                                  "&:hover": { color: "#ef4444" },
+                                }}
+                              >
+                                <CloseIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                          </Stack>
+
+                          <Slider
+                            value={currentValue}
+                            onChange={(e, v) => {
+                              const newWpFreeze = { ...wpFreeze, [wp]: v };
+                              setConfig({
+                                ...config,
+                                freeze_horizon_by_workplace: newWpFreeze,
+                              });
+                            }}
+                            min={0}
+                            max={168}
+                            step={1}
+                            valueLabelDisplay="auto"
+                            valueLabelFormat={(v) => `${v}h`}
+                            size="small"
+                            marks={[
+                              { value: 0, label: "0" },
+                              { value: 72, label: "3d" },
+                              { value: 168, label: "7d" },
+                            ]}
+                            sx={{
+                              height: 4,
+                              "& .MuiSlider-thumb": {
+                                width: 14,
+                                height: 14,
+                                bgcolor: isCustom ? "#2563eb" : "#94a3b8",
+                              },
+                              "& .MuiSlider-track": {
+                                bgcolor: isCustom ? "#2563eb" : "#94a3b8",
+                                border: "none",
+                              },
+                              "& .MuiSlider-rail": { bgcolor: "#e2e8f0" },
+                              "& .MuiSlider-mark": {
+                                bgcolor: "#cbd5e1",
+                                height: 6,
+                                width: 1,
+                              },
+                              "& .MuiSlider-markLabel": {
+                                fontSize: "0.7rem",
+                                color: "#94a3b8",
+                              },
+                            }}
+                          />
+                        </Box>
+                      );
+                    })}
+                  </Stack>
+                </Box>
+              )}
+            </Box>
 
             {/* Notes */}
             <TextField

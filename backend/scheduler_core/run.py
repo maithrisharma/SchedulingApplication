@@ -217,83 +217,158 @@ def run_scheduler_with_paths(
     run_meta["sa_cooling"] = sa_cooling
     run_meta["sa_step_scale"] = sa_step_scale
 
-    freeze_h = int(cfg.get("freeze_horizon_hours", 0) or 0)
+    freeze_h_global = int(cfg.get("freeze_horizon_hours", 0) or 0)
+    freeze_by_wp = cfg.get("freeze_horizon_by_workplace", {})
+
     latest_plan_path = latest_dir / "plan.csv"
     latest_meta_path = latest_dir / "run_meta.json"
 
-    freeze_anchor = None
-    freeze_until = None
-    locked_ops_freeze = pd.DataFrame()
+    # ===== PER-WORKPLACE FREEZE WINDOWS =====
+    freeze_anchor_by_wp = {}
+    freeze_until_by_wp = {}
+    global_freeze_anchor = None
+    global_freeze_until = None
 
-    # Try to reuse previous anchored window if still active
-    if freeze_h > 0 and latest_meta_path.exists():
+    # Try to reuse previous anchored windows if still active
+    if freeze_h_global > 0 and latest_meta_path.exists():
         try:
             prev_meta = json.loads(latest_meta_path.read_text(encoding="utf-8"))
             prev_anchor = prev_meta.get("freeze_anchor")
-            prev_until = prev_meta.get("freeze_until")
+            prev_until_by_wp = prev_meta.get("freeze_until_by_workplace", {})
 
-            if prev_anchor and prev_until:
+            if prev_anchor:
                 prev_anchor_ts = pd.Timestamp(prev_anchor)
-                prev_until_ts = pd.Timestamp(prev_until)
 
-                if prev_until_ts > now_ts:
-                    freeze_anchor = prev_anchor_ts
-                    freeze_until = prev_until_ts
-                    print(f"[FREEZE] Reusing anchored window: {freeze_anchor} → {freeze_until}")
+                # Check global window
+                prev_until = prev_meta.get("freeze_until")
+                if prev_until:
+                    prev_until_ts = pd.Timestamp(prev_until)
+                    if prev_until_ts > now_ts:
+                        global_freeze_anchor = prev_anchor_ts
+                        global_freeze_until = prev_until_ts
+                        print(
+                            f"[FREEZE] Reusing global anchored window: {global_freeze_anchor} → {global_freeze_until}")
+
+                # Check each workplace-specific window
+                for wp, prev_until_str in prev_until_by_wp.items():
+                    try:
+                        prev_until_ts = pd.Timestamp(prev_until_str)
+                        if prev_until_ts > now_ts:
+                            freeze_anchor_by_wp[wp] = prev_anchor_ts
+                            freeze_until_by_wp[wp] = prev_until_ts
+                            print(f"[FREEZE] Reusing workplace {wp} window: {prev_anchor_ts} → {prev_until_ts}")
+                    except Exception as e:
+                        print(f"[FREEZE] Error parsing workplace {wp} window: {e}")
+
         except Exception as e:
             print(f"[FREEZE] Could not read previous run_meta.json: {e}")
 
-    # If not reused, start a new anchored window (when enabled)
-    if freeze_h > 0 and freeze_until is None:
-        freeze_anchor = now_ts
-        freeze_until = now_ts + pd.Timedelta(hours=freeze_h)
-        print(f"[FREEZE] New anchored window: {freeze_anchor} → {freeze_until}")
+    # Create new anchored windows for workplaces without reused windows
+    if freeze_h_global > 0 or freeze_by_wp:
+        # Set global window if not reused
+        if global_freeze_until is None and freeze_h_global > 0:
+            global_freeze_anchor = now_ts
+            global_freeze_until = now_ts + pd.Timedelta(hours=freeze_h_global)
+            print(f"[FREEZE] New global anchored window: {global_freeze_anchor} → {global_freeze_until}")
 
-    # Extract locked ops from latest released plan within [now_ts, freeze_until)
-    if freeze_h > 0 and freeze_until is not None and latest_plan_path.exists():
+        # Create workplace-specific windows
+        for wp_key, wp_hours in freeze_by_wp.items():
+            if wp_key not in freeze_until_by_wp:
+                wp_h = int(wp_hours or 0)
+                if wp_h > 0:
+                    freeze_anchor_by_wp[wp_key] = now_ts
+                    freeze_until_by_wp[wp_key] = now_ts + pd.Timedelta(hours=wp_h)
+                    print(f"[FREEZE] New workplace {wp_key} window: {now_ts} → {freeze_until_by_wp[wp_key]}")
+
+    # ===== EXTRACT LOCKED OPERATIONS FROM PREVIOUS PLAN =====
+    locked_ops_by_wp = {}
+    locked_ops_freeze = pd.DataFrame()
+
+    if latest_plan_path.exists() and (freeze_h_global > 0 or freeze_by_wp):
         prev_plan = pd.read_csv(latest_plan_path)
         prev_plan["Start"] = pd.to_datetime(prev_plan["Start"], errors="coerce")
         prev_plan["End"] = pd.to_datetime(prev_plan["End"], errors="coerce")
+        prev_plan["WorkPlaceNo"] = prev_plan["WorkPlaceNo"].astype(str).str.strip()
 
-        locked_ops_freeze = prev_plan[
-            prev_plan["Start"].notna() & prev_plan["End"].notna() &
-            (prev_plan["Start"] <= freeze_until) &
-            (prev_plan["End"] >= freeze_anchor)
-            ].copy()
-        # Freeze policy: always freeze PG0/1; PG2 optional (configurable)
+        # Filter by PriorityGroup
         freeze_pg2 = bool(cfg.get("freeze_pg2", False))
 
-        if "PriorityGroup" in locked_ops_freeze.columns:
-            locked_ops_freeze["PriorityGroup"] = pd.to_numeric(
-                locked_ops_freeze["PriorityGroup"], errors="coerce"
+        if "PriorityGroup" in prev_plan.columns:
+            prev_plan["PriorityGroup"] = pd.to_numeric(
+                prev_plan["PriorityGroup"], errors="coerce"
             ).fillna(2).astype(int)
 
             if freeze_pg2:
-                locked_ops_freeze = locked_ops_freeze[locked_ops_freeze["PriorityGroup"].isin([0, 1, 2])].copy()
+                prev_plan = prev_plan[prev_plan["PriorityGroup"].isin([0, 1, 2])].copy()
             else:
-                locked_ops_freeze = locked_ops_freeze[locked_ops_freeze["PriorityGroup"].isin([0, 1])].copy()
-
+                prev_plan = prev_plan[prev_plan["PriorityGroup"].isin([0, 1])].copy()
         else:
-            # If PriorityGroup is missing in plan.csv, safest fallback is: freeze everything (or only freeze nothing).
-            # I recommend freezing everything to avoid breaking production stability accidentally.
             if not freeze_pg2:
                 print("[FREEZE] WARNING: plan.csv has no PriorityGroup; cannot exclude PG2. Freezing all locked ops.")
 
-    print(f"[FREEZE] freeze_h={freeze_h}, locked_ops_freeze_count={len(locked_ops_freeze)}")
-    # Enforce freeze ONLY if we actually have locked ops from a previous released plan.
-    # On the first ever run, locked_ops is empty → do NOT shift everything to freeze_until.
+        # Group by workplace and apply workplace-specific freeze windows
+        for wp, wp_plan in prev_plan.groupby("WorkPlaceNo"):
+            # Get freeze window for this workplace (workplace-specific or global)
+            freeze_until_wp = freeze_until_by_wp.get(wp, global_freeze_until)
+            freeze_anchor_wp = freeze_anchor_by_wp.get(wp, global_freeze_anchor)
+
+            if freeze_until_wp is None or freeze_anchor_wp is None:
+                continue
+
+            # Filter operations within this workplace's freeze window
+            locked_wp = wp_plan[
+                wp_plan["Start"].notna() & wp_plan["End"].notna() &
+                (wp_plan["Start"] <= freeze_until_wp)
+                ].copy()
+
+            if len(locked_wp) > 0:
+                locked_ops_by_wp[wp] = locked_wp
+                print(
+                    f"[FREEZE] Workplace {wp}: {len(locked_wp)} ops locked within [{freeze_anchor_wp}, {freeze_until_wp})")
+
+        # Combine all locked ops from freeze
+        if locked_ops_by_wp:
+            locked_ops_freeze = pd.concat(locked_ops_by_wp.values(), ignore_index=True)
+
+    print(f"[FREEZE] Total freeze-locked operations: {len(locked_ops_freeze)}")
+
+    # ===== COMBINE ALL LOCKED OPERATIONS =====
+    locked_ops_all = None
+
+    if locked_ops_freeze is not None and len(locked_ops_freeze) > 0:
+        locked_ops_all = locked_ops_freeze.copy()
+
+    if locked_ops is not None and len(locked_ops) > 0:
+        if locked_ops_all is None:
+            locked_ops_all = locked_ops.copy()
+        else:
+            locked_ops_all = pd.concat([locked_ops_all, locked_ops], ignore_index=True)
+
+    print(f"[LOCKS] Total locked operations: {len(locked_ops_all) if locked_ops_all is not None else 0}")
+    print(f"[LOCKS]   - Freeze: {len(locked_ops_freeze)}")
+    print(f"[LOCKS]   - User: {len(locked_ops) if locked_ops is not None else 0}")
+
+    # Determine freeze enforcement
     freeze_enforce_until = (
-        freeze_until
-        if (freeze_h > 0 and locked_ops_freeze is not None and len(locked_ops_freeze) > 0)
+        global_freeze_until
+        if (freeze_h_global > 0 and locked_ops_all is not None and len(locked_ops_all) > 0)
         else None
     )
 
     print(f"[FREEZE] freeze_enforce_until={_iso(freeze_enforce_until)}")
 
-    run_meta["freeze_anchor"] = _iso(freeze_anchor) if freeze_anchor is not None else None
-    run_meta["freeze_until"] = _iso(freeze_until) if freeze_until is not None else None
-    run_meta["freeze_source"] = "output/plan.csv" if freeze_h > 0 else None
-    run_meta["locked_ops_count"] = int(len(locked_ops_freeze)) if freeze_h > 0 else 0
+    # Update run_meta with freeze info
+    run_meta["freeze_anchor"] = _iso(global_freeze_anchor) if global_freeze_anchor is not None else None
+    run_meta["freeze_until"] = _iso(global_freeze_until) if global_freeze_until is not None else None
+    run_meta["freeze_horizon_by_workplace"] = freeze_by_wp
+    run_meta["freeze_until_by_workplace"] = {
+        wp: _iso(until) for wp, until in freeze_until_by_wp.items()
+    }
+    run_meta["freeze_anchor_by_workplace"] = {
+        wp: _iso(anchor) for wp, anchor in freeze_anchor_by_wp.items()
+    }
+    run_meta["freeze_source"] = "output/plan.csv" if (freeze_h_global > 0 or freeze_by_wp) else None
+    run_meta["locked_ops_count"] = int(len(locked_ops_all)) if locked_ops_all is not None else 0
     # write archived meta for this run (always)
     (run_output_dir / "run_meta.json").write_text(
         json.dumps(run_meta, indent=2),
@@ -374,16 +449,6 @@ def run_scheduler_with_paths(
     base_weights = weights.copy() if weights else DEFAULT_WEIGHTS.copy()
     print(f"[ENGINE] Initial weights: {base_weights}")
 
-    locked_ops_all = None
-
-    if locked_ops is not None and len(locked_ops) > 0:
-        locked_ops_all = locked_ops.copy()
-
-    if locked_ops_freeze is not None and len(locked_ops_freeze) > 0:
-        if locked_ops_all is None:
-            locked_ops_all = locked_ops_freeze.copy()
-        else:
-            locked_ops_all = pd.concat([locked_ops_all, locked_ops_freeze], ignore_index=True)
 
     plan, late, unplaced, score, pred_sets = run_once(
         jobs, shifts, unlimited, outsourcing, base_weights, now_ts=now_ts, cancel_check=cancel_check, locked_ops=locked_ops_all, freeze_until=freeze_enforce_until, freeze_pg2 = freeze_pg2,pinned_starts=pinned_starts,is_first_run=True,
